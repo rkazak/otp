@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1998-2017. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2020. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,7 +47,6 @@
 #else
 # define HEXF "%08bpX"
 #endif
-#define TermWords(t) (((t) / (sizeof(BeamInstr)/sizeof(Eterm))) + !!((t) % (sizeof(BeamInstr)/sizeof(Eterm))))
 
 void dbg_bt(Process* p, Eterm* sp);
 void dbg_where(BeamInstr* addr, Eterm x0, Eterm* reg);
@@ -158,7 +157,7 @@ erts_debug_breakpoint_2(BIF_ALIST_2)
     }
 
     if (!erts_try_seize_code_write_permission(BIF_P)) {
-	ERTS_BIF_YIELD2(bif_export[BIF_erts_debug_breakpoint_2],
+	ERTS_BIF_YIELD2(&bif_trap_export[BIF_erts_debug_breakpoint_2],
 			BIF_P, BIF_ARG_1, BIF_ARG_2);
     }
     erts_proc_unlock(p, ERTS_PROC_LOCK_MAIN);
@@ -332,6 +331,13 @@ erts_debug_disassemble_1(BIF_ALIST_1)
 		   "unknown " HEXF "\n", instr);
 	code_ptr++;
     }
+    if (i == op_call_nif_WWW) {
+        /*
+         * The rest of the code will not be executed. Don't disassemble any
+         * more code in this function.
+         */
+        code_ptr = 0;
+    }
     bin = new_binary(p, (byte *) dsbufp->str, dsbufp->str_len);
     erts_destroy_tmp_dsbuf(dsbufp);
     hsz = 4+4;
@@ -344,6 +350,22 @@ erts_debug_disassemble_1(BIF_ALIST_1)
                  make_small(cmfa->arity));
     hp += 4;
     return TUPLE3(hp, addr, bin, mfa);
+}
+
+BIF_RETTYPE
+erts_debug_interpreter_size_0(BIF_ALIST_0)
+{
+    int i;
+    BeamInstr low, high;
+
+    low = high = (BeamInstr) process_main;
+    for (i = 0; i < NUM_SPECIFIC_OPS; i++) {
+        BeamInstr a = BeamOpCodeAddr(i);
+        if (a > high) {
+            high = a;
+        }
+    }
+    return erts_make_integer(high - low, BIF_P);
 }
 
 void
@@ -558,23 +580,6 @@ print_op(fmtfn_t to, void *to_arg, int op, int size, BeamInstr* addr)
 	case 'I':
         case 'W':
 	    switch (op) {
-	    case op_i_gc_bif1_jWstd:
-	    case op_i_gc_bif2_jWtssd:
-	    case op_i_gc_bif3_jWtssd:
-		{
-		    const ErtsGcBif* p;
-		    BifFunction gcf = (BifFunction) *ap;
-		    for (p = erts_gc_bifs; p->bif != 0; p++) {
-			if (p->gc_bif == gcf) {
-			    print_bif_name(to, to_arg, p->bif);
-			    break;
-			}
-		    }
-		    if (p->bif == 0) {
-			erts_print(to, to_arg, "%d", (Uint)gcf);
-		    }
-		    break;
-		}
 	    case op_i_make_fun_Wt:
                 if (*sign == 'W') {
                     ErlFunEntry* fe = (ErlFunEntry *) *ap;
@@ -586,6 +591,7 @@ print_op(fmtfn_t to, void *to_arg, int op, int size, BeamInstr* addr)
                 }
                 break;
 	    case op_i_bs_match_string_xfWW:
+	    case op_i_bs_match_string_yfWW:
                 if (ap - first_arg < 3) {
                     erts_print(to, to_arg, "%d", *ap);
                 } else {
@@ -667,7 +673,7 @@ print_op(fmtfn_t to, void *to_arg, int op, int size, BeamInstr* addr)
 	    ap++;
 	    break;
 	case 'l':		/* fr(N) */
-	    erts_print(to, to_arg, "fr(%d)", loader_reg_index(ap[0]));
+	    erts_print(to, to_arg, "fr(%d)", ap[0] / sizeof(FloatDef));
 	    ap++;
 	    break;
 	default:
@@ -786,11 +792,14 @@ print_op(fmtfn_t to, void *to_arg, int op, int size, BeamInstr* addr)
 	    }
 	}
 	break;
-    case op_i_put_tuple_xI:
-    case op_i_put_tuple_yI:
+    case op_put_tuple2_xI:
+    case op_put_tuple2_yI:
     case op_new_map_dtI:
-    case op_update_map_assoc_sdtI:
-    case op_update_map_exact_jsdtI:
+    case op_update_map_assoc_xdtI:
+    case op_update_map_assoc_ydtI:
+    case op_update_map_assoc_cdtI:
+    case op_update_map_exact_xjdtI:
+    case op_update_map_exact_yjdtI:
 	{
 	    int n = unpacked[-1];
 
@@ -1191,7 +1200,8 @@ dirty_send_message(Process *c_p, Eterm to, Eterm tag)
     mp = erts_alloc_message_heap(rp, &rp_locks, 3, &hp, &ohp);
 
     msg = TUPLE2(hp, tag, c_p->common.id);
-    erts_queue_message(rp, rp_locks, mp, msg, c_p->common.id);
+    ERL_MESSAGE_TOKEN(mp) = am_undefined;
+    erts_queue_proc_message(c_p, rp, rp_locks, mp, msg);
 
     if (rp == real_c_p)
 	rp_locks &= ~c_p_locks;

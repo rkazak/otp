@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2016</year><year>2018</year>
+      <year>2016</year><year>2020</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -28,55 +28,129 @@
     <date></date>
     <rev></rev>
   </header>
-  <module>gen_statem</module>
+  <module since="OTP 19.0">gen_statem</module>
   <modulesummary>Generic state machine behavior.</modulesummary>
   <description>
     <p>
-      This behavior module provides a state machine. Two
+      <c>gen_statem</c> provides a generic state machine behaviour
+      that for new code replaces its predecessor
+      <seealso marker="gen_fsm"><c>gen_fsm</c></seealso>
+      since Erlang/OTP 20.0. The <c>gen_fsm</c> behaviour remains
+      in OTP "as is".
+    </p>
+    <note>
+      <p>
+	If you are new to <c>gen_statem</c> and want an overview
+	of concepts and operation the section
+	<seealso marker="doc/design_principles:statem">
+	  <c>gen_statem</c>&nbsp;Behaviour
+	</seealso>
+	located in the User's Guide
+	<seealso marker="doc/design_principles:users_guide">
+	  OTP Design Principles
+	</seealso>
+	is recommended to read before this reference manual,
+	possibly after the Description section you are reading here.
+      </p>
+    </note>
+    <p>
+      This reference manual contains type descriptions generated from
+      types in the <c>gen_statem</c> source code, so they are correct.
+      However, the generated descriptions also reflect the type hierarchy,
+      which sometimes makes it hard to get a good overview.
+      If so, see the section
+      <seealso marker="doc/design_principles:statem">
+	<c>gen_statem</c>&nbsp;Behaviour
+      </seealso>
+      in the
+      <seealso marker="doc/design_principles:users_guide">
+	OTP Design Principles
+      </seealso>
+      User's Guide.
+    </p>
+    <note>
+      <list type="bulleted">
+	<item>This behavior appeared in Erlang/OTP 19.0.</item>
+	<item>
+	  In OTP 19.1 a backwards incompatible change of
+	  the return tuple from
+	  <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
+	  was made and the mandatory callback function
+	  <seealso marker="#Module:callback_mode/0">
+	    <c>Module:callback_mode/0</c>
+	  </seealso>
+	  was introduced.
+	</item>
+	<item>
+	   In OTP 20.0
+           <seealso marker="#type-generic_timeout">
+	     generic time-outs
+	   </seealso>
+	   were added.
+	</item>
+	<item>
+	  In OTP 22.1 time-out content
+          <seealso marker="#type-timeout_update_action">
+	    <c>update</c>
+	  </seealso>
+	  and explicit time-out
+          <seealso marker="#type-timeout_cancel_action">
+	    <c>cancel</c>
+	  </seealso>
+	  were added.
+	</item>
+	<item>
+	  In OTP 22.3 the possibility to change the callback module
+	  with actions
+	  <seealso marker="#type-action"><c>change_callback_module</c></seealso>,
+	  <seealso marker="#type-action"><c>push_callback_module</c></seealso> and
+	  <seealso marker="#type-action"><c>pop_callback_module</c></seealso>,
+	  was added.
+	</item>
+      </list>
+    </note>
+    <p>
+      <c>gen_statem</c> has got the same features that
+      <seealso marker="gen_fsm"><c>gen_fsm</c></seealso>
+      had and adds some really useful:
+    </p>
+    <list type="bulleted">
+      <item>Co-located state code</item>
+      <item>Arbitrary term state</item>
+      <item>Event postponing</item>
+      <item>Self-generated events</item>
+      <item>State time-out</item>
+      <item>Multiple generic named time-outs</item>
+      <item>Absolute time-out time</item>
+      <item>Automatic state enter calls</item>
+      <item>
+	Reply from other state than the request, <c>sys</c> traceable
+      </item>
+      <item>Multiple <c>sys</c> traceable replies</item>
+      <item>Changing the callback module</item>
+    </list>
+
+
+    <p>
+      Two
       <seealso marker="#type-callback_mode"><em>callback modes</em></seealso>
       are supported:
     </p>
     <list type="bulleted">
       <item>
-        <p>One for finite-state machines
+        <p>
+	  One for finite-state machines
           (<seealso marker="gen_fsm"><c>gen_fsm</c></seealso> like),
           which requires the state to be an atom and uses that state as
-          the name of the current callback function
+          the name of the current callback function.
         </p>
       </item>
       <item>
-        <p>One without restriction on the state data type
-          that uses one callback function for all states
+        <p>
+	  One that allows the state to be any term and
+          that uses one callback function for all states.
         </p>
       </item>
-    </list>
-    <note>
-      <p>
-        This is a new behavior in Erlang/OTP 19.0.
-        It has been thoroughly reviewed, is stable enough
-        to be used by at least two heavy OTP applications,
-	and is here to stay.
-        Depending on user feedback, we do not expect
-        but can find it necessary to make minor
-        not backward compatible changes into Erlang/OTP 20.0.
-      </p>
-    </note>
-    <p>
-      The <c>gen_statem</c> behavior replaces 
-      <seealso marker="gen_fsm"><c>gen_fsm</c> </seealso> in Erlang/OTP 20.0.
-      It has the same features and adds some really useful:
-    </p>
-    <list type="bulleted">
-      <item>Gathered state code.</item>
-      <item>Arbitrary term state.</item>
-      <item>Event postponing.</item>
-      <item>Self-generated events.</item>
-      <item>State time-out.</item>
-      <item>Multiple generic named time-outs.</item>
-      <item>Absolute time-out time.</item>
-      <item>Automatic state enter calls.</item>
-      <item>Reply from other state than the request.</item>
-      <item>Multiple <c>sys</c> traceable replies.</item>
     </list>
     <p>
       The callback model(s) for <c>gen_statem</c> differs from
@@ -87,7 +161,7 @@
       </seealso> <c>gen_fsm</c> to <c>gen_statem</c>.
     </p>
     <p>
-      A generic state machine process (<c>gen_statem</c>) implemented
+      A generic state machine server process (<c>gen_statem</c>) implemented
       using this module has a standard set of interface functions
       and includes functionality for tracing and error reporting.
       It also fits into an OTP supervision tree. For more information, see
@@ -102,6 +176,7 @@
 gen_statem module            Callback module
 -----------------            ---------------
 gen_statem:start
+gen_statem:start_monitor
 gen_statem:start_link -----> Module:init/1
 
 Server start or code change
@@ -111,6 +186,7 @@ gen_statem:stop       -----> Module:terminate/3
 
 gen_statem:call
 gen_statem:cast
+gen_statem:send_request
 erlang:send
 erlang:'!'            -----> Module:StateName/3
                              Module:handle_event/4
@@ -134,7 +210,7 @@ erlang:'!'            -----> Module:StateName/3
     </p>
     <marker id="state callback"/>
     <p>
-      The "<em>state callback</em>" for a specific
+      The <em>state callback</em> for a specific
       <seealso marker="#type-state">state</seealso>
       in a <c>gen_statem</c> is the callback function that is called
       for all events in this state. It is selected depending on which
@@ -146,9 +222,9 @@ erlang:'!'            -----> Module:StateName/3
       When the
       <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>
       is <c>state_functions</c>, the state must be an atom and
-      is used as the state callback name; see
+      is used as the <em>state callback</em> name; see
       <seealso marker="#Module:StateName/3"><c>Module:StateName/3</c></seealso>.
-      This gathers all code for a specific state
+      This co-locates all code for a specific state
       in one function as the <c>gen_statem</c> engine
       branches depending on state name.
       Note the fact that the callback function
@@ -159,7 +235,7 @@ erlang:'!'            -----> Module:StateName/3
       When the
       <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>
       is <c>handle_event_function</c>, the state can be any term
-      and the state callback name is
+      and the <em>state callback</em> name is
       <seealso marker="#Module:handle_event/4"><c>Module:handle_event/4</c></seealso>.
       This makes it easy to branch depending on state or event as you desire.
       Be careful about which events you handle in which
@@ -167,12 +243,36 @@ erlang:'!'            -----> Module:StateName/3
       forever creating an infinite busy loop.
     </p>
     <p>
-      The <c>gen_statem</c> enqueues incoming events in order of arrival
-      and presents these to the
-      <seealso marker="#state callback">state callback</seealso>
-      in that order. The state callback can postpone an event
-      so it is not retried in the current state.
-      After a state change the queue restarts with the postponed events.
+      When <c>gen_statem</c> receives a process message it is
+      converted into an event and the
+      <seealso marker="#state callback"><em>state callback</em></seealso>
+      is called with the event as two arguments: type and content.
+      When the
+      <seealso marker="#state callback"><em>state callback</em></seealso>
+      has processed the event it returns to <c>gen_statem</c>
+      which does a <em>state transition</em>.
+      If this <em>state transition</em> is to a different state,
+      that is: <c>NextState =/= State</c>, it is a <em>state change</em>.
+    </p>
+    <p>
+      The
+      <seealso marker="#state callback"><em>state callback</em></seealso>
+      may return
+      <seealso marker="#type-action"><em>transition actions</em></seealso>
+      for <c>gen_statem</c>
+      to execute during the <em>state transition</em>,
+      for example to reply to a
+      <seealso marker="#call/2"><c>gen_statem:call/2,3</c></seealso>.
+    </p>
+    <p>
+      One of the possible <em>transition actions</em>
+      is to postpone the current event.
+      Then it is not retried in the current state.
+      The <c>gen_statem</c> engine keeps a queue of events
+      divided into the postponed events
+      and the events still to process.
+      After a <em>state change</em> the queue restarts
+      with the postponed events.
     </p>
     <p>
       The <c>gen_statem</c> event queue model is sufficient
@@ -182,13 +282,17 @@ erlang:'!'            -----> Module:StateName/3
       to entering a new receive statement.
     </p>
     <p>
-      The <seealso marker="#state callback">state callback</seealso>
+      The
+      <seealso marker="#state callback"><em>state callback</em></seealso>
       can insert events using the
-      <seealso marker="#type-action"><c>action()</c></seealso>
+      <seealso marker="#type-action"><em>transition actions</em></seealso>
       <c>next_event</c>
-      and such an event is inserted as the next to present
-      to the state callback. That is, as if it is
-      the oldest incoming event. A dedicated
+      and such an event is inserted in the event queue
+      as the next to call the
+      <seealso marker="#state callback"><em>state callback</em></seealso>
+      with.
+      That is, as if it is the oldest incoming event.
+      A dedicated
       <seealso marker="#type-event_type"><c>event_type()</c></seealso>
       <c>internal</c> can be used for such events making them impossible
       to mistake for external events.
@@ -203,22 +307,26 @@ erlang:'!'            -----> Module:StateName/3
     <p>
       The <c>gen_statem</c> engine can automatically
       make a specialized call to the
-      <seealso marker="#state callback">state callback</seealso>
+      <seealso marker="#state callback"><em>state callback</em></seealso>
       whenever a new state is entered; see 
       <seealso marker="#type-state_enter"><c>state_enter()</c></seealso>.
       This is for writing code common to all state entries.
-      Another way to do it is to insert events at state transitions,
-      but you have to do so everywhere it is needed.
+      Another way to do it is to explicitly insert an event
+      at the <em>state transition</em>,
+      and/or to use a dedicated <em>state transition</em> function,
+      but that is something you will have to remember
+      at every <em>state transition</em> to the state(s) that need it.
     </p>
     <note>
       <p>If you in <c>gen_statem</c>, for example, postpone
-        an event in one state and then call another state callback
-        of yours, you have not changed states and hence the postponed event
-        is not retried, which is logical but can be confusing.
+        an event in one state and then call another <em>state callback</em>
+        of yours, you have not done a <em>state change</em>
+	and hence the postponed event is not retried,
+	which is logical but can be confusing.
       </p>
     </note>
     <p>
-      For the details of a state transition, see type
+      For the details of a <em>state transition</em>, see type
       <seealso marker="#type-transition_option"><c>transition_option()</c></seealso>.
     </p>
     <p>
@@ -241,7 +349,8 @@ erlang:'!'            -----> Module:StateName/3
       The <c>gen_statem</c> process can go into hibernation; see
       <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>.
       It is done when a
-      <seealso marker="#state callback">state callback</seealso> or
+      <seealso marker="#state callback"><em>state callback</em></seealso>
+      or
       <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
       specifies <c>hibernate</c> in the returned
       <seealso marker="#type-action"><c>Actions</c></seealso>
@@ -251,6 +360,18 @@ erlang:'!'            -----> Module:StateName/3
       as hibernation can be too costly
       to use after every event; see
       <seealso marker="erts:erlang#hibernate/3"><c>erlang:hibernate/3</c></seealso>.
+    </p>
+    <p>
+      There is also a server start option
+      <seealso marker="#type-enter_loop_opt">
+	<c>{hibernate_after, Timeout}</c>
+      </seealso>
+      for
+      <seealso marker="#start/3"><c>start/3,4</c></seealso>,
+      <seealso marker="#start_monitor/3"><c>start_monitor/3,4</c></seealso>,
+      <seealso marker="#start_link/3"><c>start_link/3,4</c></seealso> or
+      <seealso marker="#enter_loop/4"><c>enter_loop/4,5,6</c></seealso>,
+      that may be used to automatically hibernate the server.
     </p>
   </description>
 
@@ -438,36 +559,6 @@ handle_event(_, _, State, Data) ->
       </desc>
     </datatype>
     <datatype>
-      <name name="debug_opt"/>
-      <desc>
-	<p>
-	  Debug option that can be used when starting
-	  a <c>gen_statem</c> server through,
-	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>.
-	</p>
-	<p>
-	  For every entry in <c><anno>Dbgs</anno></c>,
-	  the corresponding function in
-	  <seealso marker="sys"><c>sys</c></seealso> is called.
-	</p>
-      </desc>
-    </datatype>
-    <datatype>
-      <name name="hibernate_after_opt"/>
-      <desc>
-	<p>
-          hibernate_after option that can be used when starting
-	  a <c>gen_statem</c> server through,
-	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>.
-	</p>
-    <p>If option<seealso marker="#type-hibernate_after_opt"><c>{hibernate_after,HibernateAfterTimeout}</c></seealso> is present, the <c>gen_statem</c>
-        process awaits any message for <c>HibernateAfterTimeout</c> milliseconds and
-        if no message is received, the process goes into hibernation automatically
-        (by calling <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
-    </p>
-      </desc>
-    </datatype>
-    <datatype>
       <name name="start_opt"/>
       <desc>
 	<p>
@@ -481,9 +572,50 @@ handle_event(_, _, State, Data) ->
       <name name="start_ret"/>
       <desc>
 	<p>
-	  Return value from the start functions, for example,
-	  <seealso marker="#start_link/3"><c>start_link/3</c></seealso>.
+	  Return value from the <c>start()</c> and <c>start_link()</c> functions,
+	  for example, <seealso marker="#start_link/3"><c>start_link/3</c></seealso>.
 	</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="start_mon_ret"/>
+      <desc>
+	<p>
+	  Return value from the
+	  <seealso marker="#start_monitor/3"><c>start_monitor()</c></seealso>
+	  functions.
+	</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="enter_loop_opt"/>
+      <desc>
+	<p>
+	  Options that can be used when starting
+	  a <c>gen_statem</c> server through,
+	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>.
+	</p>
+	<taglist>
+	  <tag><c>hibernate_after</c></tag>
+	  <item>
+	    <p>
+	      <c>HibernateAfterTimeout</c>
+	      specifies that the <c>gen_statem</c> process awaits
+	      any message for <c>HibernateAfterTimeout</c> milliseconds and
+              if no message is received, the process goes into hibernation
+	      automatically (by calling
+	      <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
+	    </p>
+	  </item>
+	  <tag><c>debug</c></tag>
+	  <item>
+	    <p>
+	      For every entry in <c><anno>Dbgs</anno></c>,
+	      the corresponding function in
+	      <seealso marker="sys"><c>sys</c></seealso> is called.
+	    </p>
+	  </item>
+	</taglist>
       </desc>
     </datatype>
     <datatype>
@@ -506,7 +638,7 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>
 	  is <c>handle_event_function</c>,
 	  the state can be any term.
-	  After a state change (<c>NextState =/= State</c>),
+	  After a <em>state change</em> (<c>NextState =/= State</c>),
 	  all postponed events are retried.
 	</p>
       </desc>
@@ -518,9 +650,12 @@ handle_event(_, _, State, Data) ->
 	  If the
 	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>
 	  is <c>state_functions</c>,
-	  the state must be of this type.
-	  After a state change (<c>NextState =/= State</c>),
+	  the state must be an atom.
+	  After a <em>state change</em> (<c>NextState =/= State</c>),
 	  all postponed events are retried.
+	  Note that the state <c>terminate</c> is not possible
+	  to use since it would collide with the optional callback function
+	  <seealso marker="#Module:terminate/3"><c>Module:terminate/3</c></seealso>.
 	</p>
       </desc>
     </datatype>
@@ -550,7 +685,7 @@ handle_event(_, _, State, Data) ->
 	</p>
 	<p>
 	  <c>internal</c> events can only be generated by the
-	  state machine itself through the state transition action
+	  state machine itself through the <em>transition action</em>
 	  <seealso marker="#type-action"><c>next_event</c></seealso>.
 	</p>
       </desc>
@@ -561,11 +696,12 @@ handle_event(_, _, State, Data) ->
 	<p>
 	  External events are of 3 types:
 	  <c>{call,<anno>From</anno>}</c>, <c>cast</c>, or <c>info</c>.
-	  <seealso marker="#call/2">Calls</seealso>
-	  (synchronous) and
-	  <seealso marker="#cast/2">casts</seealso>
-	  originate from the corresponding API functions.
+	  Type <c>call</c> originates from the API functions
+	  <seealso marker="#call/2"><c>call/2</c></seealso>
+	  and <seealso marker="#send_request/2"><c>send_request/2</c></seealso>.
 	  For calls, the event contains whom to reply to.
+	  Type <c>cast</c> originates from the API function
+	  <seealso marker="#cast/2"><c>cast/2</c></seealso>.
 	  Type <c>info</c> originates from regular process messages sent
 	  to the <c>gen_statem</c>.
 	</p>
@@ -575,7 +711,7 @@ handle_event(_, _, State, Data) ->
       <name name="timeout_event_type"/>
       <desc>
 	<p>
-	  There are 3 types of timeout events that the state machine
+	  There are 3 types of time-out events that the state machine
 	  can generate for itself with the corresponding
 	  <seealso marker="#type-timeout_action">timeout_action()</seealso>s.
 	</p>
@@ -588,9 +724,9 @@ handle_event(_, _, State, Data) ->
 	  This is the return type from
 	  <seealso marker="#Module:callback_mode/0"><c>Module:callback_mode/0</c></seealso>
 	  and selects 
-	  <seealso marker="#type-callback_mode">callback mode</seealso>
+	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>
 	  and whether to do
-	  <seealso marker="#type-state_enter">state enter calls</seealso>,
+	  <seealso marker="#type-state_enter"><em>state enter calls</em></seealso>,
 	  or not.
 	</p>
       </desc>
@@ -599,10 +735,9 @@ handle_event(_, _, State, Data) ->
       <name name="callback_mode"/>
       <desc>
 	<p>
-	  The <em>callback mode</em> is selected when starting the
-	  <c>gen_statem</c> and after code change
-	  using the return value from
-	  <seealso marker="#Module:callback_mode/0"><c>Module:callback_mode/0</c></seealso>.
+	  The <em>callback mode</em> is selected
+	  with the return value from
+	  <seealso marker="#Module:callback_mode/0"><c>Module:callback_mode/0</c></seealso>:
 	</p>
 	<taglist>
 	  <tag><c>state_functions</c></tag>
@@ -624,6 +759,18 @@ handle_event(_, _, State, Data) ->
 	    </p>
 	  </item>
 	</taglist>
+	<p>
+	  The function
+	  <seealso marker="#Module:callback_mode/0"><c>Module:callback_mode/0</c></seealso>
+	  is called when starting the <c>gen_statem</c>,
+	  after code change
+	  and after changing the callback module with any of the actions
+	  <seealso marker="#type-action"><c>change_callback_module</c></seealso>,
+	  <seealso marker="#type-action"><c>push_callback_module</c></seealso> or
+	  <seealso marker="#type-action"><c>pop_callback_module</c></seealso>.
+	  The result is cached for subsequent calls to
+	  <seealso marker="#state callback">state callbacks</seealso>.
+	</p>
       </desc>
     </datatype>
     <datatype>
@@ -639,13 +786,17 @@ handle_event(_, _, State, Data) ->
 	  If 
 	  <seealso marker="#Module:callback_mode/0"><c>Module:callback_mode/0</c></seealso>
 	  returns a list containing <c>state_enter</c>,
-	  the <c>gen_statem</c> engine will, at every state change,
+	  the <c>gen_statem</c> engine will, at every <em>state change</em>,
 	  call the
 	  <seealso marker="#state callback">state callback</seealso>
-	  with arguments <c>(enter, OldState, Data)</c>.
+	  with arguments <c>(enter, OldState, Data)</c> or
+	  <c>(enter, OldState, State, Data)</c>, depending on the
+	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>.
 	  This may look like an event but is really a call
-	  performed after the previous state callback returned
-	  and before any event is delivered to the new state callback.
+	  performed after the previous
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  returned and before any event is delivered to the new
+	  <seealso marker="#state callback"><em>state callback</em></seealso>.
 	  See
 	  <seealso marker="#Module:StateName/3"><c>Module:StateName/3</c></seealso>
 	  and
@@ -658,27 +809,27 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#type-state_callback_result">
 	    <c>repeat_state_and_data</c>
 	  </seealso>
-	  tuple from the state callback.
+	  tuple from the <em>state callback</em>.
 	</p>
 	<p>
 	  If 
 	  <seealso marker="#Module:callback_mode/0"><c>Module:callback_mode/0</c></seealso>
-	  does not return such a list, no state enter calls are done.
+	  does not return such a list, no <em>state enter calls</em> are done.
 	</p>
 	<p>
 	  If 
 	  <seealso marker="#Module:code_change/4"><c>Module:code_change/4</c></seealso>
-	  should transform the state to a state with a different
-	  name it is still regarded as the same state so this
-	  does not cause a state enter call.
+	  should transform the state,
+	  it is regarded as a state rename and not a <em>state change</em>,
+	  which will not cause a <em>state enter call</em>.
 	</p>
 	<p>
-	  Note that a state enter call <em>will</em> be done
+	  Note that a <em>state enter call</em> <em>will</em> be done
 	  right before entering the initial state even though this
-	  formally is not a state change.
-	  In this case <c>OldState</c> will be the same as <c>State</c>,
-	  which can not happen for a subsequent state change,
-	  but will happen when repeating the state enter call.
+	  actually is not a <em>state change</em>.
+	  In this case <c>OldState =:= State</c>,
+	  which cannot happen for a subsequent state change,
+	  but will happen when repeating the <em>state enter call</em>.
 	</p>
       </desc>
     </datatype>
@@ -688,37 +839,61 @@ handle_event(_, _, State, Data) ->
 	<p>
 	  Transition options can be set by
 	  <seealso marker="#type-action">actions</seealso>
-	  and they modify how the state transition is done:
+	  and modify the <em>state transition</em>.
+	  The <em>state transition</em> takes place when the
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  has processed an event and returns.
+	  Here are the sequence of steps for a <em>state transition</em>:
 	</p>
 	<list type="ordered">
 	  <item>
+	    <p>
+	      All returned
+              <seealso marker="#type-action">actions</seealso>
+	      are processed in order of appearance.
+	      In this step all replies generated by any
+	      <seealso marker="#type-reply_action"><c>reply_action()</c></seealso>
+	      are sent.  Other actions set <c>transition_option()</c>s
+	      that come into play in subsequent steps.
+            </p>
+	  </item>
+	  <item>
             <p>
-	      If the state changes, is the initial state,
+	      If
+	      <seealso marker="#type-state_enter">
+		<em>state enter calls</em>
+	      </seealso>
+	      are used, and either
+	      it is the initial state or one of the callback results
 	      <seealso marker="#type-state_callback_result">
-		<c>repeat_state</c>
+		<c>repeat_state_and_data</c>
 	      </seealso>
 	      or
 	      <seealso marker="#type-state_callback_result">
 		<c>repeat_state_and_data</c>
 	      </seealso>
-	      is used, and also
-	      <seealso marker="#type-state_enter"><em>state enter calls</em></seealso>
-	      are used, the <c>gen_statem</c> calls
+	      is used the <c>gen_statem</c> engine calls
+	      the current state callback with arguments
+	      <seealso marker="#type-state_enter"><c>(enter, State, Data)</c></seealso>
+	      or
+	      <seealso marker="#type-state_enter"><c>(enter, State, State, Data)</c></seealso>
+	      (depending on <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>)
+	      and when it returns starts again from the top of this sequence.
+	    </p>
+            <p>
+	      If
+	      <seealso marker="#type-state_enter">
+		<em>state enter calls</em>
+	      </seealso>
+	      are used, and the state changes
+	      the <c>gen_statem</c> engine calls
 	      the new state callback with arguments
-	      <seealso marker="#type-state_enter">(enter, OldState, Data)</seealso>.
-	      Any 
-	      <seealso marker="#type-enter_action"><c>actions</c></seealso>
-	      returned from this call are handled as if they were
-	      appended to the actions 
-	      returned by the state callback that changed states.
-            </p>
-	  </item>
-	  <item>
-	    <p>
-	      All
-              <seealso marker="#type-action">actions</seealso>
-	      are processed in order of appearance.
-            </p>
+	      <seealso marker="#type-state_enter"><c>(enter, OldState, Data)</c></seealso>
+	      or
+	      <seealso marker="#type-state_enter"><c>(enter, OldState, State, Data)</c></seealso>
+	      (depending on <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>)
+	      and when it returns starts again from the top of this sequence.
+	    </p>
 	  </item>
 	  <item>
             <p>
@@ -730,7 +905,8 @@ handle_event(_, _, State, Data) ->
 	  </item>
 	  <item>
 	    <p>
-	      If the state changes, the queue of incoming events
+	      If this is a <em>state change</em>,
+	      the queue of incoming events
               is reset to start with the oldest postponed.
 	    </p>
 	  </item>
@@ -739,7 +915,7 @@ handle_event(_, _, State, Data) ->
 	      All events stored with
 	      <seealso marker="#type-action"><c>action()</c></seealso>
 	      <c>next_event</c>
-	      are inserted to be processed before the other queued events.
+	      are inserted to be processed before previously queued events.
             </p>
 	  </item>
 	  <item>
@@ -753,7 +929,9 @@ handle_event(_, _, State, Data) ->
 	      delivered to the state machine before any external
 	      not yet received event so if there is such a time-out requested,
 	      the corresponding time-out zero event is enqueued as
-	      the newest event.
+	      the newest received event;
+	      that is after already queued events
+	      such as inserted and postponed events.
 	    </p>
 	    <p>
 	      Any event cancels an
@@ -762,19 +940,21 @@ handle_event(_, _, State, Data) ->
 	      if the event queue is empty.
 	    </p>
 	    <p>
-	      A state change cancels a
+	      A <em>state change</em> cancels a
               <seealso marker="#type-state_timeout"><c>state_timeout()</c></seealso>
 	      and any new transition option of this type
-	      belongs to the new state.
+	      belongs to the new state, that is; a
+              <seealso marker="#type-state_timeout"><c>state_timeout()</c></seealso>
+	      applies to the state the state machine enters.
 	    </p>
 	  </item>
 	  <item>
 	    <p>
 	      If there are enqueued events the
-	      <seealso marker="#state callback">state callback</seealso>
+	      <seealso marker="#state callback"><em>state callback</em></seealso>
 	      for the possibly new state
 	      is called with the oldest enqueued event,
-	      and we start again from the top of this list.
+	      and we start again from the top of this sequence.
 	    </p>
 	  </item>
 	  <item>
@@ -789,9 +969,9 @@ handle_event(_, _, State, Data) ->
 	      the next incoming message awakens the <c>gen_statem</c>,
 	      but if it is a system event it goes right back into hibernation.
 	      When a new message arrives the 
-	      <seealso marker="#state callback">state callback</seealso>
+	      <seealso marker="#state callback"><em>state callback</em></seealso>
 	      is called with the corresponding event,
-	      and we start again from the top of this list.
+	      and we start again from the top of this sequence.
 	    </p>
 	  </item>
 	</list>
@@ -802,7 +982,7 @@ handle_event(_, _, State, Data) ->
       <desc>
 	<p>
 	  If <c>true</c>, postpones the current event and retries
-	  it when the state changes
+	  it after a <em>state change</em>
 	  (<c>NextState =/= State</c>).
 	</p>
       </desc>
@@ -816,13 +996,19 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>
 	  before going into <c>receive</c>
 	  to wait for a new external event.
-	  If there are enqueued events,
-	  to prevent receiving any new event, an
-	  <seealso marker="erts:erlang#garbage_collect/0"><c>erlang:garbage_collect/0</c></seealso>
-	  is done instead to simulate
-	  that the <c>gen_statem</c> entered hibernation
-	  and immediately got awakened by the oldest enqueued event.
 	</p>
+	<note>
+	  <p>
+	    If there are enqueued events to process
+	    when hibrnation is requested,
+	    this is optimized by not hibernating but instead calling
+	    <seealso marker="erts:erlang#garbage_collect/0">
+	      <c>erlang:garbage_collect/0</c>
+	    </seealso>
+	    to simulate that the <c>gen_statem</c> entered hibernation
+	    and immediately got awakened by an enqueued event.
+	  </p>
+	</note>
       </desc>
     </datatype>
     <datatype>
@@ -857,7 +1043,7 @@ handle_event(_, _, State, Data) ->
 	  no timer is actually started,
 	  instead the the time-out event is enqueued to ensure
 	  that it gets processed before any not yet
-	  received external event.
+	  received external event, but after already queued events.
 	</p>
 	<p>
 	  Note that it is not possible nor needed to cancel this time-out,
@@ -943,7 +1129,9 @@ handle_event(_, _, State, Data) ->
 	  If <c>Abs</c> is <c>true</c> an absolute timer is started,
 	  and if it is <c>false</c> a relative, which is the default.
 	  See
-	  <seealso marker="erts:erlang#start_timer/4"><c>erlang:start_timer/4</c></seealso>
+	  <seealso marker="erts:erlang#start_timer/4">
+	    <c>erlang:start_timer/4</c>
+	  </seealso>
 	  for details.
 	</p>
 	<p>
@@ -954,9 +1142,9 @@ handle_event(_, _, State, Data) ->
       <name name="action"/>
       <desc>
 	<p>
-	  These state transition actions can be invoked by
+	  These <em>transition actions</em> can be invoked by
 	  returning them from the
-	  <seealso marker="#state callback">state callback</seealso>
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
 	  when it is called with an
 	  <seealso marker="#type-event_type">event</seealso>,
 	  from
@@ -969,7 +1157,9 @@ handle_event(_, _, State, Data) ->
 	</p>
 	<p>
 	  Actions that set
-	  <seealso marker="#type-transition_option">transition options</seealso>
+	  <seealso marker="#type-transition_option">
+	    transition options
+	  </seealso>
 	  override any previous of the same type,
 	  so the last in the containing list wins.
 	  For example, the last
@@ -981,9 +1171,11 @@ handle_event(_, _, State, Data) ->
 	  <item>
 	    <p>
 	      Sets the
-	      <seealso marker="#type-transition_option"><c>transition_option()</c></seealso>
+	      <seealso marker="#type-transition_option">
+		<c>transition_option()</c>
+	      </seealso>
 	      <seealso marker="#type-postpone"><c>postpone()</c></seealso>
-	      for this state transition.
+	      for this <em>state transition</em>.
 	      This action is ignored when returned from
 	      <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
 	      or given to
@@ -994,7 +1186,11 @@ handle_event(_, _, State, Data) ->
 	  <tag><c>next_event</c></tag>
 	  <item>
 	    <p>
-	      Stores the specified <c><anno>EventType</anno></c>
+	      This action does not set any
+	      <seealso marker="#type-transition_option">
+		<c>transition_option()</c>
+	      </seealso>
+	      but instead stores the specified <c><anno>EventType</anno></c>
 	      and <c><anno>EventContent</anno></c> for insertion after all
 	      actions have been executed.
 	    </p>
@@ -1011,6 +1207,74 @@ handle_event(_, _, State, Data) ->
 	      an event inserted this way from any external event.
 	    </p>
 	  </item>
+	  <tag>
+	    <c>change_callback_module</c>
+	  </tag>
+	  <item>
+	    <p>
+	      Changes the callback module to
+	      <c><anno>NewModule</anno></c>
+	      which will be used when calling all subsequent
+	      <seealso marker="#state callback">state callbacks</seealso>.
+	    </p>
+	    <p>
+	      The <c>gen_statem</c> engine will find out the
+	      <seealso marker="#type-callback_mode">
+		<em>callback mode</em>
+	      </seealso>
+	      of <c><anno>NewModule</anno></c> by calling
+	      <seealso marker="#Module:callback_mode/0">
+		<c>NewModule:callback_mode/0</c>
+	      </seealso>
+	      before the next
+	      <seealso marker="#state callback">state callback</seealso>.
+	    </p>
+	    <p>
+	      Changing the callback module does not affect the
+	      <em>state transition</em> in any way,
+	      it only changes which module that handles the events.
+	      Be aware that all relevant callback functions in
+	      <c><anno>NewModule</anno></c>
+	      such as the
+	      <seealso marker="#state callback">state callback</seealso>,
+	      <seealso marker="#Module:code_change/4"><c><anno>NewModule</anno>:code_change/4</c></seealso>,
+	      <seealso marker="#Module:format_status/2">
+		<c><anno>NewModule</anno>:format_status/2</c>
+	      </seealso>
+	      and
+	      <seealso marker="#Module:terminate/3">
+		<c><anno>NewModule</anno>:terminate/3</c>
+	      </seealso>
+	      must be able to handle the state and data
+	      from the old module.
+	    </p>
+	  </item>
+	  <tag>
+	    <c>push_callback_module</c><br />
+	  </tag>
+	  <item>
+	    <p>
+	      Pushes the current callback module
+	      to the top of an internal stack of callback modules
+	      and changes the callback module to
+	      <c><anno>NewModule</anno></c>.
+	      Otherwise like
+	      <c>{change_callback_module, NewModule}</c>
+	      above.
+	    </p>
+	  </item>
+	  <tag>
+	    <c>pop_callback_module</c>
+	  </tag>
+	  <item>
+	    Pops the top module from the internal stack of
+	    callback modules and changes the callback module
+	    to be the popped module.
+	    If the stack is empty the server fails.
+	    Otherwise like
+	    <c>{change_callback_module, NewModule}</c>
+	    above.
+	  </item>
 	</taglist>
       </desc>
     </datatype>
@@ -1018,9 +1282,9 @@ handle_event(_, _, State, Data) ->
       <name name="enter_action"/>
       <desc>
 	<p>
-	  These state transition actions can be invoked by
+	  These <em>transition actions</em> can be invoked by
 	  returning them from the
-	  <seealso marker="#state callback">state callback</seealso>, from
+	  <seealso marker="#state callback"><em>state callback</em></seealso>, from
 	  <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
 	  or by giving them to
 	  <seealso marker="#enter_loop/5"><c>enter_loop/5,6</c></seealso>.
@@ -1044,7 +1308,7 @@ handle_event(_, _, State, Data) ->
 	      Sets the
 	      <seealso marker="#type-transition_option"><c>transition_option()</c></seealso>
 	      <seealso marker="#type-hibernate"><c>hibernate()</c></seealso>
-	      for this state transition.
+	      for this <em>state transition</em>.
 	    </p>
 	  </item>
 	</taglist>
@@ -1054,27 +1318,27 @@ handle_event(_, _, State, Data) ->
       <name name="timeout_action"/>
       <desc>
 	<p>
-	  These state transition actions can be invoked by
+	  These <em>transition actions</em> can be invoked by
 	  returning them from the
-	  <seealso marker="#state callback">state callback</seealso>, from
+	  <seealso marker="#state callback"><em>state callback</em></seealso>, from
 	  <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
 	  or by giving them to
 	  <seealso marker="#enter_loop/5"><c>enter_loop/5,6</c></seealso>.
 	</p>
 	<p>
-	  These timeout actions sets timeout
+	  These time-out actions sets time-out
 	  <seealso marker="#type-transition_option">transition options</seealso>.
 	</p>
 	<taglist>
-	  <tag><c>Timeout</c></tag>
+	  <tag><c>Time</c></tag>
 	  <item>
 	    <p>
-	      Short for <c>{timeout,Timeout,Timeout}</c>, that is,
+	      Short for <c>{timeout,Time,Time}</c>, that is,
 	      the time-out message is the time-out time.
 	      This form exists to make the
-	      <seealso marker="#state callback">state callback</seealso>
-	      return value <c>{next_state,NextState,NewData,Timeout}</c>
-	      allowed like for <c>gen_fsm</c>'s
+	      <seealso marker="#state callback"><em>state callback</em></seealso>
+	      return value <c>{next_state,NextState,NewData,Time}</c>
+	      allowed like for <c>gen_fsm</c>.
 	    </p>
 	  </item>
 	  <tag><c>timeout</c></tag>
@@ -1115,23 +1379,57 @@ handle_event(_, _, State, Data) ->
       </desc>
     </datatype>
     <datatype>
+      <name name="timeout_cancel_action" since="OTP 22.1"/>
+      <desc>
+	<p>
+	  This is a shorter and clearer form of
+	  <seealso marker="#type-timeout_action">
+	    timeout_action()
+	  </seealso>
+	  with <c>Time = infinity</c> which cancels a time-out.
+	</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="timeout_update_action" since="OTP 22.1"/>
+      <desc>
+	<p>
+	  Updates a time-out with a new <c>EventContent</c>.
+	  See
+	  <seealso marker="#type-timeout_action">
+	    timeout_action()
+	  </seealso>
+	  for how to start a time-out.
+	</p>
+	<p>
+	  If no time-out of the same type is active instead
+	  insert the time-out event just like when starting
+	  a time-out with relative <c>Time = 0</c>.
+	</p>
+      </desc>
+    </datatype>
+    <datatype>
       <name name="reply_action"/>
       <desc>
 	<p>
-	  This state transition action can be invoked by
+	  This <em>transition action</em> can be invoked by
 	  returning it from the
-	  <seealso marker="#state callback">state callback</seealso>, from
+	  <seealso marker="#state callback"><em>state callback</em></seealso>, from
 	  <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
 	  or by giving it to
 	  <seealso marker="#enter_loop/5"><c>enter_loop/5,6</c></seealso>.
 	</p>
 	<p>
-	  It replies to a caller waiting for a reply in
+	  It does not set any
+	  <seealso marker="#type-transition_option">
+	    <c>transition_option()</c>
+	  </seealso>
+	  but instead replies to a caller waiting for a reply in
 	  <seealso marker="#call/2"><c>call/2</c></seealso>.
 	  <c><anno>From</anno></c> must be the term from argument
 	  <seealso marker="#type-event_type"><c>{call,<anno>From</anno>}</c></seealso>
 	  in a call to a
-	  <seealso marker="#state callback">state callback</seealso>.
+	  <seealso marker="#state callback"><em>state callback</em></seealso>.
 	</p>
 	<p>
 	  Note that using this action from 
@@ -1140,7 +1438,7 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#enter_loop/5"><c>enter_loop/5,6</c></seealso>
 	  would be weird on the border of witchcraft
 	  since there has been no earlier call to a
-	  <seealso marker="#state callback">state callback</seealso>
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
 	  in this server.
 	</p>
       </desc>
@@ -1160,7 +1458,7 @@ handle_event(_, _, State, Data) ->
 	  The <seealso marker="#type-action"><c>Actions</c></seealso>
 	  are executed when entering the first
 	  <seealso marker="#type-state">state</seealso> just as for a
-	  <seealso marker="#state callback">state callback</seealso>,
+	  <seealso marker="#state callback"><em>state callback</em></seealso>,
 	  except that the action <c>postpone</c> is forced to
 	  <c>false</c> since there is no event to postpone.
 	</p>
@@ -1177,7 +1475,7 @@ handle_event(_, _, State, Data) ->
       <desc>
 	<p>
 	  <c><anno>State</anno></c> is the current state
-	  and it can not be changed since the state callback
+	  and it cannot be changed since the state callback
 	  was called with a
 	  <seealso marker="#type-state_enter"><em>state enter call</em></seealso>.
 	</p>
@@ -1213,11 +1511,13 @@ handle_event(_, _, State, Data) ->
 	  <tag><c>next_state</c></tag>
 	  <item>
 	    <p>
-	      The <c>gen_statem</c> does a state transition to
+	      The <c>gen_statem</c> does a <em>state transition</em> to
 	      <c><anno>NextState</anno></c>
 	      (which can be the same as the current state),
 	      sets <c><anno>NewData</anno></c>,
 	      and executes all <c><anno>Actions</anno></c>.
+	      If <c><anno>NextState</anno> =/= CurrentState</c>
+	      the <em>state transition</em> is a <em>state change</em>.
 	    </p>
 	  </item>
 	</taglist>
@@ -1239,54 +1539,33 @@ handle_event(_, _, State, Data) ->
 	  <tag><c>keep_state</c></tag>
 	  <item>
 	    <p>
-	      The <c>gen_statem</c> keeps the current state, or
-	      does a state transition to the current state if you like,
-	      sets <c><anno>NewData</anno></c>,
-	      and executes all <c><anno>Actions</anno></c>.
-	      This is the same as
+	      The same as
 	      <c>{next_state,CurrentState,<anno>NewData</anno>,<anno>Actions</anno>}</c>.
 	    </p>
 	  </item>
 	  <tag><c>keep_state_and_data</c></tag>
 	  <item>
 	    <p>
-	      The <c>gen_statem</c> keeps the current state or
-	      does a state transition to the current state if you like,
-	      keeps the current server data,
-	      and executes all <c><anno>Actions</anno></c>.
-	      This is the same as
-	      <c>{next_state,CurrentState,CurrentData,<anno>Actions</anno>}</c>.
+	      The same as
+	      <c>{keep_state,CurrentData,<anno>Actions</anno>}</c>.
 	    </p>
 	  </item>
 	  <tag><c>repeat_state</c></tag>
 	  <item>
 	    <p>
-	      The <c>gen_statem</c> keeps the current state, or
-	      does a state transition to the current state if you like,
-	      sets <c><anno>NewData</anno></c>,
-	      and executes all <c><anno>Actions</anno></c>.
 	      If the <c>gen_statem</c> runs with
 	      <seealso marker="#type-state_enter"><em>state enter calls</em></seealso>,
-	      the state enter call is repeated, see type
+	      the <em>state enter call</em> is repeated, see type
 	      <seealso marker="#type-transition_option"><c>transition_option()</c></seealso>,
-	      otherwise <c>repeat_state</c> is the same as
+	      other than that <c>repeat_state</c> is the same as
 	      <c>keep_state</c>.
 	    </p>
 	  </item>
 	  <tag><c>repeat_state_and_data</c></tag>
 	  <item>
 	    <p>
-	      The <c>gen_statem</c> keeps the current state and data, or
-	      does a state transition to the current state if you like,
-	      and executes all <c><anno>Actions</anno></c>.
-	      This is the same as
+	      The same as
 	      <c>{repeat_state,CurrentData,<anno>Actions</anno>}</c>.
-	      If the <c>gen_statem</c> runs with
-	      <seealso marker="#type-state_enter"><em>state enter calls</em></seealso>,
-	      the state enter call is repeated, see type
-	      <seealso marker="#type-transition_option"><c>transition_option()</c></seealso>,
-	      otherwise <c>repeat_state_and_data</c> is the same as
-	      <c>keep_state_and_data</c>.
 	    </p>
 	  </item>
 	  <tag><c>stop</c></tag>
@@ -1315,12 +1594,22 @@ handle_event(_, _, State, Data) ->
 	</p>
       </desc>
     </datatype>
+
+    <datatype>
+      <name name="request_id"/>
+      <desc>
+	<p>
+	  A request handle, see <seealso marker="#send_request/2"> <c>send_request/2</c> </seealso>
+	  for details.
+	</p>
+      </desc>
+    </datatype>
   </datatypes>
 
   <funcs>
     <func>
-      <name name="call" arity="2"/>
-      <name name="call" arity="3"/>
+      <name name="call" arity="2" since="OTP 19.0"/>
+      <name name="call" arity="3" since="OTP 19.0"/>
       <fsummary>Make a synchronous call to a <c>gen_statem</c>.</fsummary>
       <desc>
         <p>
@@ -1329,14 +1618,15 @@ handle_event(_, _, State, Data) ->
 	  by sending a request
 	  and waiting until its reply arrives.
 	  The <c>gen_statem</c> calls the
-	  <seealso marker="#state callback">state callback</seealso> with
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  with
 	  <seealso marker="#type-event_type"><c>event_type()</c></seealso>
 	  <c>{call,From}</c> and event content
 	  <c><anno>Request</anno></c>.
 	</p>
 	<p>
 	  A <c><anno>Reply</anno></c> is generated when a
-	  <seealso marker="#state callback">state callback</seealso>
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
 	  returns with
 	  <c>{reply,From,<anno>Reply</anno>}</c> as one
 	  <seealso marker="#type-action"><c>action()</c></seealso>,
@@ -1395,7 +1685,7 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="cast" arity="2"/>
+      <name name="cast" arity="2" since="OTP 19.0"/>
       <fsummary>Send an asynchronous event to a <c>gen_statem</c>.</fsummary>
       <desc>
 	<p>
@@ -1405,7 +1695,8 @@ handle_event(_, _, State, Data) ->
 	  ignoring if the destination node or <c>gen_statem</c>
 	  does not exist.
 	  The <c>gen_statem</c> calls the
-	  <seealso marker="#state callback">state callback</seealso> with
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  with
 	  <seealso marker="#type-event_type"><c>event_type()</c></seealso>
 	  <c>cast</c> and event content
 	  <c><anno>Msg</anno></c>.
@@ -1414,7 +1705,38 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="enter_loop" arity="4"/>
+      <name name="check_response" arity="2" since="OTP-23"/>
+      <fsummary>Check if a message is a reply from a server.</fsummary>
+      <desc>
+	<p>
+	  This function is used to check if a previously received
+	  message, for example by <c>receive</c> or
+	  <c>handle_info/2</c>, is a result of a request made with
+	  <seealso marker="#send_request/2"><c>send_request/2</c></seealso>.
+	  If <c>Msg</c> is a reply to the handle <c>RequestId</c>
+	  the result of the request is returned in <c>Reply</c>.
+	  Otherwise returns <c>no_reply</c> and no cleanup is done, and
+	  thus the function shall be invoked repeatedly until a reply
+	  is returned.
+	</p>
+	<p>
+	  The return value <c><anno>Reply</anno></c> is generated when a
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  returns with
+	  <c>{reply,From,<anno>Reply</anno>}</c> as one
+	  <seealso marker="#type-action"><c>action()</c></seealso>,
+	  and that <c><anno>Reply</anno></c> becomes the return value
+	  of this function.
+	</p>
+	<p>
+	  The function returns an error if the <c>gen_statem</c>
+	  dies before or during this request.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="enter_loop" arity="4" since="OTP 19.1"/>
       <fsummary>Enter the <c>gen_statem</c> receive loop.</fsummary>
       <desc>
 	<p>
@@ -1428,7 +1750,7 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="enter_loop" arity="5"/>
+      <name name="enter_loop" arity="5" since="OTP 19.0"/>
       <fsummary>Enter the <c>gen_statem</c> receive loop.</fsummary>
       <desc>
 	<p>
@@ -1452,7 +1774,7 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="enter_loop" arity="6"/>
+      <name name="enter_loop" arity="6" since="OTP 19.0"/>
       <fsummary>Enter the <c>gen_statem</c> receive loop.</fsummary>
       <desc>
 	<p>
@@ -1474,16 +1796,16 @@ handle_event(_, _, State, Data) ->
 	<p>
 	  <c><anno>Module</anno></c>, <c><anno>Opts</anno></c>
 	  have the same meaning as when calling
-	  <seealso marker="#start_link/3"><c>start[_link]/3,4</c></seealso>.
+	  <seealso marker="#start_link/3"><c>start[_link|_monitor]/3,4</c></seealso>.
 	</p>
 	<p>
 	  If <c><anno>Server</anno></c> is <c>self()</c> an anonymous
 	  server is created just as when using 
-	  <seealso marker="#start_link/3"><c>start[_link]/3</c></seealso>.
+	  <seealso marker="#start_link/3"><c>start[_link|_monitor]/3</c></seealso>.
 	  If <c><anno>Server</anno></c> is a
 	  <seealso marker="#type-server_name"><c>server_name()</c></seealso>
 	  a named server is created just as when using
-	  <seealso marker="#start_link/4"><c>start[_link]/4</c></seealso>.
+	  <seealso marker="#start_link/4"><c>start[_link|_monitor]/4</c></seealso>.
 	  However, the
 	  <seealso marker="#type-server_name"><c>server_name()</c></seealso>
 	  name must have been registered accordingly
@@ -1509,8 +1831,8 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="reply" arity="1"/>
-      <name name="reply" arity="2"/>
+      <name name="reply" arity="1" since="OTP 19.0"/>
+      <name name="reply" arity="2" since="OTP 19.0"/>
       <fsummary>Reply to a caller.</fsummary>
       <desc>
         <p>
@@ -1519,18 +1841,18 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#call/2"><c>call/2</c></seealso>
 	  when the reply cannot be defined in
 	  the return value of a
-	  <seealso marker="#state callback">state callback</seealso>.
+	  <seealso marker="#state callback"><em>state callback</em></seealso>.
 	</p>
 	<p>
 	  <c><anno>From</anno></c> must be the term from argument
 	  <seealso marker="#type-event_type"><c>{call,<anno>From</anno>}</c></seealso>
 	  to the
-	  <seealso marker="#state callback">state callback</seealso>.
+	  <seealso marker="#state callback"><em>state callback</em></seealso>.
 	  A reply or multiple replies canalso be sent
 	  using one or several
 	  <seealso marker="#type-reply_action"><c>reply_action()</c></seealso>s
 	  from a
-	  <seealso marker="#state callback">state callback</seealso>.
+	  <seealso marker="#state callback"><em>state callback</em></seealso>.
 	</p>
 	<note>
 	  <p>
@@ -1542,8 +1864,50 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="start" arity="3"/>
-      <name name="start" arity="4"/>
+      <name name="send_request" arity="2" since="OTP-23"/>
+      <fsummary>Send a request to a <c>gen_statem</c>.</fsummary>
+      <desc>
+        <p>
+	  Sends a request to the <c>gen_statem</c>
+	  <seealso marker="#type-server_ref"><c><anno>ServerRef</anno></c></seealso>
+	  and returns a handle <c><anno>RequestId</anno></c>.
+	</p>
+	<p>
+	  The return value <c><anno>RequestId</anno></c> shall later be used with
+          <seealso marker="#wait_response/2"> <c>wait_response/1,2</c></seealso> or
+	  <seealso marker="#check_response/2"> <c>check_response/2</c></seealso>
+	  to fetch the actual result of the request.
+	</p>
+	<p>
+	  The call <c>gen_statem:wait_response(gen_statem:send_request(ServerRef,Request), Timeout)</c>
+	  can be seen as equivalent to
+	  <seealso marker="#call/3"><c>gen_statem:call(Server,Request,Timeout)</c></seealso>,
+	  ignoring the error handling.
+	</p>
+	<p>
+	  The <c>gen_statem</c> calls the
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  with
+	  <seealso marker="#type-event_type"><c>event_type()</c></seealso>
+	  <c>{call,From}</c> and event content
+	  <c><anno>Request</anno></c>.
+	</p>
+	<p>
+	  A <c>Reply</c> is generated when a
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  returns with
+	  <c>{reply,From,Reply}</c> as one
+	  <seealso marker="#type-action"><c>action()</c></seealso>,
+	  and that <c>Reply</c> becomes the return value
+	  of <seealso marker="#wait_response/2"> <c>wait_response/1,2</c></seealso> or
+	  <seealso marker="#check_response/2"> <c>check_response/2</c></seealso> function.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="start" arity="3" since="OTP 19.0"/>
+      <name name="start" arity="4" since="OTP 19.0"/>
       <fsummary>Create a standalone <c>gen_statem</c> process.</fsummary>
       <desc>
         <p>
@@ -1563,8 +1927,8 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="start_link" arity="3"/>
-      <name name="start_link" arity="4"/>
+      <name name="start_link" arity="3" since="OTP 19.0"/>
+      <name name="start_link" arity="4" since="OTP 19.0"/>
       <fsummary>Create a linked <c>gen_statem</c> process.</fsummary>
       <desc>
         <p>
@@ -1602,7 +1966,11 @@ handle_event(_, _, State, Data) ->
         <list type="bulleted">
           <item>
 	    <p>
-	      If option <c>{timeout,Time}</c> is present in
+	      If option
+	      <seealso marker="#type-start_opt">
+		<c>{timeout,Time}</c>
+	      </seealso>
+	      is present in
 	      <c><anno>Opts</anno></c>, the <c>gen_statem</c>
 	      is allowed to spend <c>Time</c> milliseconds initializing
 	      or it terminates and the start function returns
@@ -1610,23 +1978,33 @@ handle_event(_, _, State, Data) ->
             </p>
           </item>
           <item>
-            <p>If option<seealso marker="#type-hibernate_after_opt"><c>{hibernate_after,HibernateAfterTimeout}</c></seealso> is present, the <c>gen_statem</c>
-              process awaits any message for <c>HibernateAfterTimeout</c> milliseconds and
-              if no message is received, the process goes into hibernation automatically
-              (by calling <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
+            <p>If option
+	    <seealso marker="#type-enter_loop_opt">
+	      <c>{hibernate_after,HibernateAfterTimeout}</c>
+	    </seealso>
+	    is present, the <c>gen_statem</c>
+            process awaits any message for <c>HibernateAfterTimeout</c> milliseconds and
+            if no message is received, the process goes into hibernation automatically
+            (by calling <seealso marker="proc_lib#hibernate/3"><c>proc_lib:hibernate/3</c></seealso>).
             </p>
           </item>
           <item>
             <p>
               If option
-              <seealso marker="#type-debug_opt"><c>{debug,Dbgs}</c></seealso>
+              <seealso marker="#type-enter_loop_opt">
+		<c>{debug,Dbgs}</c>
+	      </seealso>
               is present in <c><anno>Opts</anno></c>, debugging through
               <seealso marker="sys"><c>sys</c></seealso> is activated.
             </p>
           </item>
           <item>
             <p>
-              If option <c>{spawn_opt,SpawnOpts}</c> is present in
+              If option
+              <seealso marker="#type-start_opt">
+		<c>{spawn_opt,SpawnOpts}</c>
+	      </seealso>
+	      is present in
               <c><anno>Opts</anno></c>, <c>SpawnOpts</c> is passed
               as option list to
 	      <seealso marker="erts:erlang#spawn_opt/2"><c>erlang:spawn_opt/2</c></seealso>,
@@ -1671,7 +2049,36 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="stop" arity="1"/>
+      <name name="start_monitor" arity="3" since="OTP @OTP-16120@"/>
+      <name name="start_monitor" arity="4" since="OTP @OTP-16120@"/>
+      <fsummary>Create a standalone <c>gen_statem</c> process.</fsummary>
+      <desc>
+        <p>
+	  Creates a standalone <c>gen_statem</c> process according to
+	  OTP design principles (using
+	  <seealso marker="proc_lib"><c>proc_lib</c></seealso>
+	  primitives) and atomically sets up a monitor to
+	  the newly created process.
+	  As it does not get linked to the calling process,
+	  this start function cannot be used by a supervisor
+	  to start a child.
+	</p>
+	<p>
+	  For a description of arguments and return values, see
+	  <seealso marker="#start_link/3"><c>start_link/3,4</c></seealso>.
+	  Note that the return value on successful start differs from
+	  <c>start_link/3,4</c>. <c>start_monitor/3,4</c> will return
+	  <c>{ok,{Pid,Mon}}</c> where <c>Pid</c> is the process identifier
+	  of the process, and <c>Mon</c> is a reference to the monitor
+	  set up to monitor the process. If the start is not successful,
+	  the caller will be blocked until the <c>DOWN</c> message has
+	  been received and removed from the message queue.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="stop" arity="1" since="OTP 19.0"/>
       <fsummary>Synchronously stop a generic server.</fsummary>
       <desc>
 	<p>
@@ -1682,7 +2089,7 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name name="stop" arity="3"/>
+      <name name="stop" arity="3" since="OTP 19.0"/>
       <fsummary>Synchronously stop a generic server.</fsummary>
       <desc>
 	<p>
@@ -1699,7 +2106,7 @@ handle_event(_, _, State, Data) ->
 	  with the expected reason. Any other reason than <c>normal</c>,
 	  <c>shutdown</c>, or <c>{shutdown,Term}</c> causes an
 	  error report to be issued through
-	  <seealso marker="kernel:error_logger#format/2"><c>error_logger:format/2</c></seealso>.
+	  <seealso marker="kernel:logger"><c>logger(3)</c></seealso>.
 	  The default <c><anno>Reason</anno></c> is <c>normal</c>.
 	</p>
 	<p>
@@ -1716,6 +2123,45 @@ handle_event(_, _, State, Data) ->
 	</p>
       </desc>
     </func>
+
+    <func>
+      <name name="wait_response" arity="1" since="OTP-23"/>
+      <name name="wait_response" arity="2" since="OTP-23"/>
+      <fsummary>Wait for a reply from a server.</fsummary>
+      <desc>
+	<p>
+	  This function is used to wait for a reply of a request made with
+	  <seealso marker="#send_request/2"><c>send_request/2</c></seealso>
+	  from the <c>gen_statem</c> process. This function must be called
+	  from the same process from which
+	  <seealso marker="#send_request/2"><c>send_request/2</c></seealso>
+	  was made.
+	</p>
+	<p>
+	  <c>Timeout</c> is an integer greater then or equal to zero
+	  that specifies how many milliseconds to wait for an reply, or
+	  the atom <c>infinity</c> to wait indefinitely. Defaults to
+	  <c>infinity</c>.
+	  If no reply is received within the specified
+	  time, the function returns <c>timeout</c> and no cleanup is
+	  done, and thus the function can be invoked repeatedly until a
+	  reply is returned.
+	</p>
+	<p>
+	  The return value <c><anno>Reply</anno></c> is generated when a
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  returns with
+	  <c>{reply,From,<anno>Reply</anno>}</c> as one
+	  <seealso marker="#type-action"><c>action()</c></seealso>,
+	  and that <c><anno>Reply</anno></c> becomes the return value
+	  of this function.
+	</p>
+	<p>
+	  The function returns an error if the <c>gen_statem</c>
+	  dies before or during this function call.
+	</p>
+      </desc>
+    </func>
   </funcs>
 
   <section>
@@ -1728,8 +2174,10 @@ handle_event(_, _, State, Data) ->
 
   <funcs>
     <func>
-      <name>Module:callback_mode() -> CallbackMode</name>
-      <fsummary>Update the internal state during upgrade/downgrade.</fsummary>
+      <name since="OTP 19.1">Module:callback_mode() -> CallbackMode</name>
+      <fsummary>
+	Define the callback mode for the callback module.
+      </fsummary>
       <type>
 	<v>
 	  CallbackMode =
@@ -1745,10 +2193,11 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>
 	  of the callback module.  The value is cached by <c>gen_statem</c>
 	  for efficiency reasons, so this function is only called
-	  once after server start and after code change,
+	  once after server start, after code change,
+	  and after changing the callback module,
 	  but before the first
-	  <seealso marker="#state callback">state callback</seealso>
-	  in the current code version is called.
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  in the current callback module's code version is called.
 	  More occasions may be added in future versions
 	  of <c>gen_statem</c>.
 	</p>
@@ -1757,9 +2206,16 @@ handle_event(_, _, State, Data) ->
 	  <seealso marker="#Module:init/1"><c>Module:init/1</c></seealso>
 	  returns or when
 	  <seealso marker="#enter_loop/4"><c>enter_loop/4-6</c></seealso>
-	  is called.  Code change happens when
+	  is called.
+	  Code change happens when
 	  <seealso marker="#Module:code_change/4"><c>Module:code_change/4</c></seealso>
 	  returns.
+	  A change of the callback module happens when a
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
+	  returns any of the actions
+	  <seealso marker="#type-action"><c>change_callback_module</c></seealso>,
+	  <seealso marker="#type-action"><c>push_callback_module</c></seealso> or
+	  <seealso marker="#type-action"><c>pop_callback_module</c></seealso>.
 	</p>
 	<p>
 	  The <c>CallbackMode</c> is either just
@@ -1779,10 +2235,12 @@ handle_event(_, _, State, Data) ->
     </func>
 
     <func>
-      <name>Module:code_change(OldVsn, OldState, OldData, Extra) ->
+      <name since="OTP 19.0">Module:code_change(OldVsn, OldState, OldData, Extra) ->
         Result
       </name>
-      <fsummary>Update the internal state during upgrade/downgrade.</fsummary>
+      <fsummary>
+	Update the internal state during upgrade/downgrade.
+      </fsummary>
       <type>
         <v>OldVsn = Vsn | {down,Vsn}</v>
         <v>&nbsp;&nbsp;Vsn = term()</v>
@@ -1804,7 +2262,7 @@ handle_event(_, _, State, Data) ->
           <p>
 	    This callback is optional, so callback modules need not export it.
             If a release upgrade/downgrade with
-	    <c>Change={advanced,Extra}</c>
+	    <c>Change = {advanced,Extra}</c>
 	    specified in the <c>.appup</c> file is made
 	    when <c>code_change/4</c> is not implemented
 	    the process will crash with exit reason <c>undef</c>.
@@ -1814,7 +2272,7 @@ handle_event(_, _, State, Data) ->
 	  This function is called by a <c>gen_statem</c> when it is to
 	  update its internal state during a release upgrade/downgrade,
 	  that is, when the instruction <c>{update,Module,Change,...}</c>,
-	  where <c>Change={advanced,Extra}</c>, is specified in the
+	  where <c>Change = {advanced,Extra}</c>, is specified in the
 	  <seealso marker="sasl:appup"><c>appup</c></seealso>
 	  file. For more information, see
 	  <seealso marker="doc/design_principles:release_handling#instr">OTP Design Principles</seealso>.
@@ -1843,7 +2301,7 @@ handle_event(_, _, State, Data) ->
 	<p>
 	  If the function returns a failure <c>Reason</c>, the ongoing
 	  upgrade fails and rolls back to the old release.
-	  Note that <c>Reason</c> can not be an <c>{ok,_,_}</c> tuple
+	  Note that <c>Reason</c> cannot be an <c>{ok,_,_}</c> tuple
 	  since that will be regarded as a
 	  <c>{ok,NewState,NewData}</c> tuple,
 	  and that a tuple matching <c>{ok,_}</c>
@@ -1854,23 +2312,54 @@ handle_event(_, _, State, Data) ->
 	<p>
 	  Also note when upgrading a <c>gen_statem</c>,
 	  this function and hence
-	  the <c>Change={advanced,Extra}</c> parameter in the
+	  the <c>Change = {advanced,Extra}</c> parameter in the
 	  <seealso marker="sasl:appup"><c>appup</c></seealso> file
 	  is not only needed to update the internal state
 	  or to act on the <c>Extra</c> argument.
 	  It is also needed if an upgrade or downgrade should change 
 	  <seealso marker="#type-callback_mode"><em>callback mode</em></seealso>,
-	  or else the callback mode after the code change
+	  or else the <em>callback mode</em> after the code change
 	  will not be honoured,
 	  most probably causing a server crash.
+	</p>
+	<p>
+	  If the server changes callback module using any of the actions
+	  <seealso marker="#type-action"><c>change_callback_module</c></seealso>,
+	  <seealso marker="#type-action"><c>push_callback_module</c></seealso> or
+	  <seealso marker="#type-action"><c>pop_callback_module</c></seealso>,
+	  be aware that it is always the current callback module that
+	  will get this callback call.  That the current callback module
+	  handles the current state and data update should be no surprise,
+	  but it must be able to handle even parts of
+	  the state and data that it is not familiar with,
+	  somehow.
+	</p>
+	<p>
+	  In the supervisor
+	  <seealso marker="doc/design_principles:sup_princ#child-specification">child specification</seealso>
+	  there is a list of modules which is recommended to contain
+	  only the callback module.
+	  For a <c>gen_statem</c> with multiple callback modules
+	  there is no real need to list all of them,
+	  it may not even be possible since the list could change
+	  after code upgrade.
+	  If this list would contain only the start callback module,
+	  as recommended, what is important is to upgrade <em>that</em> module
+	  whenever a <em>synchronized code replacement</em> is done.
+	  Then the release handler concludes that an upgrade
+	  that upgrades <em>that</em> module needs to suspend,
+	  code change, and resume any server whose child specification
+	  declares that it is using <em>that</em> module.
+	  And again; the <em>current</em> callback module will get the
+	  <c>Module:code_change/4</c> call.
 	</p>
       </desc>
     </func>
 
     <func>
-      <name>Module:init(Args) -> Result(StateType)</name>
+      <name since="OTP 19.0">Module:init(Args) -> Result(StateType)</name>
       <fsummary>
-	Initializing process and internal state.
+	Initialize process and internal state.
       </fsummary>
       <type>
         <v>Args = term()</v>
@@ -1883,7 +2372,8 @@ handle_event(_, _, State, Data) ->
 	<marker id="Module:init-1"/>
 	<p>
 	  Whenever a <c>gen_statem</c> is started using
-	  <seealso marker="#start_link/3"><c>start_link/3,4</c></seealso>
+	  <seealso marker="#start_link/3"><c>start_link/3,4</c></seealso>,
+	  <seealso marker="#start_monitor/3"><c>start_monitor/3,4</c></seealso>,
 	  or
 	  <seealso marker="#start/3"><c>start/3,4</c></seealso>,
 	  this function is called by the new process to initialize
@@ -1910,11 +2400,12 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
     </func>
 
     <func>
-      <name>Module:format_status(Opt, [PDict,State,Data]) ->
+      <name since="OTP 19.0">Module:format_status(Opt, [PDict,State,Data]) ->
         Status
       </name>
-      <fsummary>Optional function for providing a term describing the
-        current <c>gen_statem</c> status.</fsummary>
+      <fsummary>
+	Describe the current <c>gen_statem</c> status (optional).
+      </fsummary>
       <type>
         <v>Opt = normal | terminate</v>
         <v>PDict = [{Key, Value}]</v>
@@ -2009,16 +2500,16 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
     </func>
 
     <func>
-      <name>Module:StateName(enter, OldState, Data) ->
+      <name since="OTP 19.0">Module:StateName(enter, OldState, Data) ->
         StateEnterResult(StateName)
       </name>
-      <name>Module:StateName(EventType, EventContent, Data) ->
+      <name since="OTP 19.0">Module:StateName(EventType, EventContent, Data) ->
         StateFunctionResult
       </name>
-      <name>Module:handle_event(enter, OldState, State, Data) ->
+      <name since="OTP 19.0">Module:handle_event(enter, OldState, State, Data) ->
 	StateEnterResult(State)
       </name>
-      <name>Module:handle_event(EventType, EventContent, State, Data) ->
+      <name since="OTP 19.0">Module:handle_event(EventType, EventContent, State, Data) ->
 	HandleEventResult
       </name>
       <fsummary>Handle an event.</fsummary>
@@ -2069,7 +2560,7 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
 	  <seealso marker="#type-event_type"><c>{call,From}</c></seealso>,
 	  the caller waits for a reply. The reply can be sent
 	  from this or from any other
-	  <seealso marker="#state callback">state callback</seealso>
+	  <seealso marker="#state callback"><em>state callback</em></seealso>
 	  by returning with <c>{reply,From,Reply}</c> in
 	  <seealso marker="#type-action"><c>Actions</c></seealso>, in
 	  <seealso marker="#type-reply_action"><c>Replies</c></seealso>,
@@ -2094,9 +2585,9 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
 	</p>
 	<p>
 	  When the <c>gen_statem</c> runs with
-	  <seealso marker="#type-state_enter">state enter calls</seealso>,
+	  <seealso marker="#type-state_enter"><em>state enter calls</em></seealso>,
 	  these functions are also called with arguments
-	  <c>(enter, OldState, ...)</c> whenever the state changes.
+	  <c>(enter, OldState, ...)</c> during every <em>state change</em>.
 	  In this case there are some restrictions on the
 	  <seealso marker="#type-enter_action">actions</seealso>
 	  that may be returned:
@@ -2109,23 +2600,27 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
 	  You may also not change states from this call.
 	  Should you return <c>{next_state,NextState, ...}</c>
 	  with <c>NextState =/= State</c> the <c>gen_statem</c> crashes.
-	  It is possible to use <c>{repeat_state, ...}</c>,
-	  <c>{repeat_state_and_data,_}</c> or
-	  <c>repeat_state_and_data</c> but all of them makes little
+	  Note that it is actually allowed to use
+	  <c>{repeat_state, NewData, ...}</c> although it makes little
 	  sense since you immediately will be called again with a new
 	  <em>state enter call</em> making this just a weird way
 	  of looping, and there are better ways to loop in Erlang.
+	  If you do not update <c>NewData</c> and have some
+	  loop termination condition, or if you use
+	  <c>{repeat_state_and_data, _}</c> or
+	  <c>repeat_state_and_data</c> you have an infinite loop!
 	  You are advised to use <c>{keep_state,...}</c>,
 	  <c>{keep_state_and_data,_}</c> or
-	  <c>keep_state_and_data</c> since you can not change states
-	  from a <em>state enter call</em> anyway.
+	  <c>keep_state_and_data</c>
+	  since changing states from a <em>state enter call</em>
+	  is not possible anyway.
 	</p>
 	<p>
 	  Note the fact that you can use
 	  <seealso marker="erts:erlang#throw/1"><c>throw</c></seealso>
 	  to return the result, which can be useful.
 	  For example to bail out with <c>throw(keep_state_and_data)</c>
-	  from deep within complex code that can not
+	  from deep within complex code that cannot
 	  return <c>{next_state,State,Data}</c> because
 	  <c>State</c> or <c>Data</c> is no longer in scope.
 	</p>
@@ -2133,7 +2628,7 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
     </func>
 
     <func>
-      <name>Module:terminate(Reason, State, Data) -> Ignored</name>
+      <name since="OTP 19.0">Module:terminate(Reason, State, Data) -> Ignored</name>
       <fsummary>Clean up before termination.</fsummary>
       <type>
         <v>Reason = normal | shutdown | {shutdown,term()} | term()</v>
@@ -2203,7 +2698,7 @@ init(Args) -> erlang:error(not_implemented, [Args]).</pre>
           <c>shutdown</c>, or <c>{shutdown,Term}</c>,
 	  the <c>gen_statem</c> is assumed to terminate because of an error
 	  and an error report is issued using
-          <seealso marker="kernel:error_logger#format/2"><c>error_logger:format/2</c></seealso>.
+          <seealso marker="kernel:logger"><c>logger(3)</c></seealso>.
 	</p>
       </desc>
     </func>

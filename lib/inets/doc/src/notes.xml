@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2002</year><year>2017</year>
+      <year>2002</year><year>2018</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -33,7 +33,484 @@
     <file>notes.xml</file>
   </header>
   
-  <section><title>Inets 6.5</title>
+  <section><title>Inets 7.1.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Inets will honor that valid HTTP headers can not have
+	    white space between field-name and the colon.</p>
+          <p>
+	    Own Id: OTP-16169 Aux Id: ERL-1053 </p>
+        </item>
+        <item>
+          <p>
+	    Changed error propagation in httpc:request/1 to return
+	    expected error tuple instead of crashing.</p>
+          <p>
+	    Own Id: OTP-16290 Aux Id: PR-2437, ERL-1083 </p>
+        </item>
+        <item>
+          <p>
+	    Fix handling of HEAD request with chunked
+	    transfer-encoding (httpc).</p>
+          <p>
+	    Own Id: OTP-16300 Aux Id: ERL-1090 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.1.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Add HTTP server error logging vi logger</p>
+          <p>
+	    Own Id: OTP-16019</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    httpd - Accept singel LF as line terminator</p>
+          <p>
+	    Own Id: OTP-15893 Aux Id: PR-2206 </p>
+        </item>
+        <item>
+          <p>
+	    mod_esi will now always propagate the actual HTTP status
+	    code that it answered with, to later mod-modules, and not
+	    in some cases hardcode 200.</p>
+          <p>
+	    Own Id: OTP-16049 Aux Id: ERIERL-395 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.9</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix a regression in http client that causes a crash when
+	    request URI has no scheme.</p>
+          <p>
+	    Own Id: OTP-15930 Aux Id: ERL-969 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.8</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    All incorrect (that is, all) uses of "can not" has been
+	    corrected to "cannot" in source code comments,
+	    documentation, examples, and so on.</p>
+          <p>
+	    Own Id: OTP-14282 Aux Id: PR-1891 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+  <section><title>Inets 7.0.7.2</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Add HTTP server error logging vi logger</p>
+          <p>
+	    Own Id: OTP-16019</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+  <section><title>Inets 7.0.7.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    mod_esi will now always propagate the actual HTTP status
+	    code that it anwsered with, to later mod-modules, and not
+	    in some cases hardcode 200.</p>
+          <p>
+	    Own Id: OTP-16049 Aux Id: ERIERL-395 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.7</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix the internal handling of the option
+	    erl_script_timeout in httpd. If explicit
+	    erl_script_timeout value was supplied in seconds it was
+	    not correctly converted to millisecond units for internal
+	    usage.</p>
+          <p>
+	    This change fixes the handling of erl_script_timeout in
+	    all possible configuration scenarios.</p>
+          <p>
+	    Own Id: OTP-15769 Aux Id: ERIERL-345 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.6</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix the internal handling of the option
+	    erl_script_timeout in httpd. When httpd was started with
+	    explicit erl_script_timeout, the value of the option was
+	    converted to milliseconds before storage. Subsequent
+	    calls to httpd:info/1 returned the input value multiplied
+	    by 1000.</p>
+          <p>
+	    This change fixes the handing of erl_script_timeout by
+	    storing the timeout in seconds and converting to
+	    milliseconds before usage.</p>
+          <p>
+	    Own Id: OTP-15669 Aux Id: ERIERL-321 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Enhance documentation</p>
+          <p>
+	    Own Id: OTP-15508 Aux Id: ERL-816 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed bug that causes a crash in http client when using
+	    hostnames (e.g. localhost) with the the option
+	    ipv6_host_with_brackets set to true.</p>
+          <p>
+	    This change also fixes a regression: httpc:request fails
+	    with connection error (nxdomain) if option
+	    ipv6_host_with_brackets set to true and host component of
+	    the URI is an IPv6 address.</p>
+          <p>
+	    Own Id: OTP-15554 Aux Id: ERIERL-289 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Make sure ipv6 addresses with brackets in URIs are
+	    converted correctly before passing to lower level
+	    functions like gen_tcp and ssl functions. Could cause
+	    connection to fail.</p>
+          <p>
+	    Own Id: OTP-15544 Aux Id: ERIERL-289 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed http client to not send 'content-length' header in
+	    chunked encoded requests.</p>
+          <p>
+	    Own Id: OTP-15338 Aux Id: ERL-733 </p>
+        </item>
+        <item>
+          <p>
+	    Fixed http client to not drop explicit 'Content-Type'
+	    header in requests without a body such as requests with
+	    the 'Content-Type' of application/x-www-form-urlencoded.</p>
+          <p>
+	    Own Id: OTP-15339 Aux Id: ERL-736 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Enhance error handling, that is mod_get will return 403
+	    if a path is a directory and not a file.</p>
+          <p>
+	    Own Id: OTP-15192</p>
+        </item>
+        <item>
+          <p>
+	    Do not use chunked-encoding with 1xx, 204 and 304
+	    responses when using mod_esi. Old behavior was not
+	    compliant with HTTP/1.1 RFC and could cause clients to
+	    hang when they received 1xx, 204 or 304 responses that
+	    included an empty chunked-encoded body.</p>
+          <p>
+	    Own Id: OTP-15241</p>
+        </item>
+        <item>
+          <p>
+	    Add robust handling of chunked-encoded HTTP responses
+	    with an empty body (1xx, 204, 304). Old behavior could
+	    cause the client to hang when connecting to a faulty
+	    server implementation.</p>
+          <p>
+	    Own Id: OTP-15242</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 7.0.1</title>
+
+  <section><title>Fixed Bugs and Malfunctions</title>
+  <list>
+    <item>
+      <p>
+	Change status code for no mod found to handle request to
+      501</p>
+      <p>
+      Own Id: OTP-15215</p>
+        </item>
+  </list>
+  </section>
+
+  </section>
+
+  <section><title>Inets 7.0</title>
+
+  <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed HTTP content injection bug in httpc (ERL-456).</p>
+          <p>
+	    Own Id: OTP-14726</p>
+        </item>
+        <item>
+          <p>
+	    Fixed support for URI-references in HTTP 'Location'
+	    header (ERL-333).</p>
+          <p>
+	    Own Id: OTP-14729</p>
+        </item>
+        <item>
+          <p>
+	    Fix broken 'Content-Type' handling in httpc (ERL-536).</p>
+          <p>
+	    Own Id: OTP-15006</p>
+        </item>
+        <item>
+          <p>
+	    Fix handling of relative paths in the script_alias
+	    property of httpd (ERL-574).</p>
+          <p>
+	    Own Id: OTP-15021</p>
+        </item>
+        <item>
+          <p>
+	    Fix httpd:reload_config/2 with path() as the first
+	    argument (ERL-578).</p>
+          <p>
+	    Own Id: OTP-15025</p>
+        </item>
+        <item>
+          <p>
+	    Improved gracefulness.</p>
+          <p>
+	    Own Id: OTP-15042</p>
+        </item>
+      </list>
+    </section>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Split inets and create separate ftp and tftp apps.</p>
+          <p>
+	    Own Id: OTP-14113</p>
+        </item>
+      </list>
+    </section>
+
+  </section>
+
+  <section><title>Inets 6.5.2.4</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Do not use chunked-encoding with 1xx, 204 and 304
+	    responses when using mod_esi. Old behavior was not
+	    compliant with HTTP/1.1 RFC and could cause clients to
+	    hang when they received 1xx, 204 or 304 responses that
+	    included an empty chunked-encoded body.</p>
+          <p>
+	    Own Id: OTP-15241</p>
+        </item>
+        <item>
+          <p>
+	    Add robust handling of chunked-encoded HTTP responses
+	    with an empty body (1xx, 204, 304). Old behavior could
+	    cause the client to hang when connecting to a faulty
+	    server implementation.</p>
+          <p>
+	    Own Id: OTP-15242</p>
+        </item>
+      </list>
+    </section>
+
+  </section>
+  
+  <section><title>Inets 6.5.2.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Change status code for no mod found to handle request to
+	    501</p>
+          <p>
+	    Own Id: OTP-15215</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 6.5.2.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Enhance error handling, that is mod_get will return 403
+	    if a path is a directory and not a file.</p>
+          <p>
+	    Own Id: OTP-15192</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+  <section><title>Inets 6.5.2.1</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Options added for setting low-level properties on the
+	    underlying TCP connections. The options are:
+	    <c>sock_ctrl</c>, <c>sock_data_act</c> and
+	    <c>sock_data_pass</c>. See the manual for details.</p>
+          <p>
+	    Own Id: OTP-15120 Aux Id: ERIERL-192 </p>
+        </item>
+      </list>
+    </section>
+
+  </section>
+
+<section><title>Inets 6.5.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    inets: httpd - Gracefully handle bad headers</p>
+          <p>
+	    The option max_headers operated on the individual header
+	    length instead of the total length of all headers. Also
+	    headers with empty keys are now discarded.</p>
+          <p>
+	    Own Id: OTP-15092</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 6.5.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix broken options handling in httpc (ERL-441).</p>
+          <p>
+	    Own Id: OTP-15007</p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Inets 6.5</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>
@@ -1055,7 +1532,7 @@
 	    Add option {ftp_extension, boolean} to enable use of
 	    extended commands EPSV and EPRT, as specified in RFC
 	    2428, for IPv4 instead of using the legacy commands. Ipv6
-	    can not be supported without the extended commands.</p>
+	    cannot be supported without the extended commands.</p>
           <p>
 	    Own Id: OTP-12255</p>
         </item>
@@ -1552,9 +2029,9 @@
           <p>Better handling of errorI(s) during update of the session 
 	  database. </p>
 	  <p>Also added and updated some debugging functions 
-	  <seealso marker="httpc#which_sessions-0">which_sessions/[0,1]</seealso>
+	  <seealso marker="httpc#which_sessions/0">which_sessions/[0,1]</seealso>
 	  and 
-	  <seealso marker="httpc#info-0">info/0</seealso>. </p>
+	  <seealso marker="httpc#info/0">info/0</seealso>. </p>
 	  <p>Own Id: OTP-10093</p>
           <p>Aux Id: Seq 12062</p>
         </item>
@@ -1648,7 +2125,7 @@
 
         <item>
           <p>[httpc] Add function for retrieving current options, 
-	  <seealso marker="httpc#get_options-1">get_options/[1,2]</seealso>. </p>
+	  <seealso marker="httpc#get_options/1">get_options/[1,2]</seealso>. </p>
 	  <p>Own Id: OTP-9979</p>
         </item>
 
@@ -2023,7 +2500,7 @@
           <p>[httpc] Add support for upload body streaming (PUT and POST).</p>
 	  <p>For more info, 
 	  see the definition of the <c>Body</c> argument of the 
-	  <seealso marker="httpc#request-4">request/[4,5]</seealso> 
+	  <seealso marker="httpc#request/4">request/[4,5]</seealso> 
 	  function. </p>
 	  <p>Filipe David Manana</p>
 	  <p>Own Id: OTP-9094</p>
@@ -2036,7 +2513,7 @@
 
         <item>
           <p>[httpd] 
-	  <seealso marker="mod_esi#deliver-2">mod_esi:deliver/2</seealso> 
+	  <seealso marker="mod_esi#deliver/2">mod_esi:deliver/2</seealso> 
 	  made to accept binary data. </p>
           <p>Bernard Duggan</p>
           <p>Own Id: OTP-9123</p>
@@ -2064,7 +2541,7 @@
 	  for using file descriptors has been improved. 
 	  It is now possible to add the file descriptor to the config 
 	  (option fd) when calling the 
-	  <seealso marker="inets#start-2">inets:start(httpd, ...)</seealso> 
+	  <seealso marker="inets#start/2">inets:start(httpd, ...)</seealso> 
 	  function. </p>
 	  <p>Attila Rajmund Nohl</p>
           <p>Own Id: OTP-9202</p>
@@ -2078,7 +2555,7 @@
 	  <p>See the httpd 
 	  <seealso marker="httpd#props_comm">socket_type</seealso> 
 	  communication property or the httpc 
-	  <seealso marker="httpc#request-4">request/[4,5]</seealso> function
+	  <seealso marker="httpc#request/4">request/[4,5]</seealso> function
 	  for more info. </p>
 	  <p>Own Id: OTP-9230</p>
 	  <p>*** POTENTIAL INCOMPATIBILITY ***</p>
@@ -2278,7 +2755,7 @@
 	  <p>[httpc|httpd] - Now allow the use of the "new" ssl, by using
             the <c>essl</c> tag instead. </p> 
           <p>See the <c>http_option</c> option in the 
-            <seealso marker="httpc#request-4">request/[4,5]</seealso> or 
+            <seealso marker="httpc#request/4">request/[4,5]</seealso> or 
             the <seealso marker="httpd#props_comm">socket-type</seealso>
             section of the Communication properties chapter for more info, </p>
 	  <p>Own Id: OTP-7907</p>
@@ -2508,8 +2985,8 @@
 	  <p>[httpc] - Allow users to pass socket options to the transport 
             module when making requests. </p> 
           <p>See the <c>socket_opts</c> option in the 
-            <seealso marker="httpc#request-4">request/4</seealso> or 
-            <seealso marker="httpc#set_options-1">set_options/[1,2]</seealso>
+            <seealso marker="httpc#request/4">request/4</seealso> or 
+            <seealso marker="httpc#set_options/1">set_options/[1,2]</seealso>
             for more info, </p>
 	  <p>Own Id: OTP-8352</p>
         </item>
@@ -2550,7 +3027,7 @@
             deliver an async reply to more receivers then the calling 
             process. </p> 
           <p>See the 
-            <seealso marker="httpc#request-2">receiver</seealso>
+            <seealso marker="httpc#request/2">receiver</seealso>
             option for more info, </p>
 	  <p>Own Id: OTP-8106</p>
         </item>
@@ -2817,7 +3294,7 @@
               request, when the client connects to the server. Default 
               value is that of the <c>timeout</c> option. </p>
             <p>See the 
-	      <seealso marker="httpc#request-4">request/[4,5]</seealso> 
+	      <seealso marker="httpc#request/4">request/[4,5]</seealso> 
               function for more info. </p>
 	    <p>Own Id: OTP-7298</p>
 	    <!-- <p>Aux Id: seq11086</p> -->
@@ -2924,7 +3401,7 @@
               the client connects to the server. </p>
 	    <p>As a side-effect of this, the option <c>ipv6</c> has been 
               removed and replaced by the <c>ipfamily</c> option. </p>
-	    <p>See <seealso marker="httpc#set_options-1">http:set_options/[1,2]</seealso> 
+	    <p>See <seealso marker="httpc#set_options/1">http:set_options/[1,2]</seealso> 
               for more info. </p>
             <p>*** POTENTIAL INCOMPATIBILITY ***</p>
 	    <p>Own Id: OTP-8004</p>
@@ -2969,5 +3446,3 @@
   -->
 
 </chapter>
-
-

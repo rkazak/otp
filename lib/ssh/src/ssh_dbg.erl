@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2020. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -54,7 +54,14 @@
          start_tracer/0, start_tracer/1,
          on/1,  on/0,
          off/1, off/0,
-         go_on/0
+         go_on/0,
+         %% Circular buffer
+         cbuf_start/0, cbuf_start/1,
+         cbuf_stop_clear/0,
+         cbuf_in/1,
+         cbuf_list/0,
+         hex_dump/1, hex_dump/2,
+         fmt_cbuf_items/0, fmt_cbuf_item/1
 	]).
 
 -export([shrink_bin/1,
@@ -70,6 +77,17 @@
 
 -behaviour(gen_server).
 -define(SERVER, ?MODULE).
+
+-define(CALL_TIMEOUT, 15000). % 3x the default
+
+-type trace_point() :: atom().
+-type trace_points() :: [trace_point()].
+
+-callback ssh_dbg_trace_points() -> trace_points().
+-callback ssh_dbg_flags(trace_point()) -> [atom()].
+-callback ssh_dbg_on(trace_point() | trace_points()) -> term().
+-callback ssh_dbg_off(trace_point() | trace_points()) -> term().
+-callback ssh_dbg_format(trace_point(), term()) -> iolist().
 
 %%%================================================================
 
@@ -107,7 +125,7 @@ start_tracer(WriteFun) when is_function(WriteFun,3) ->
 start_tracer(WriteFun, InitAcc) when is_function(WriteFun, 3) ->
     Handler = 
         fun(Arg, Acc0) ->
-                try_all_types_in_all_modules(gen_server:call(?SERVER, get_on),
+                try_all_types_in_all_modules(gen_server:call(?SERVER, get_on, ?CALL_TIMEOUT),
                                              Arg, WriteFun,
                                              Acc0)
         end,
@@ -122,7 +140,7 @@ off() -> off(?ALL_DBG_TYPES). % A bit overkill...
 off(Type) -> switch(off, Type).
     
 go_on() ->
-    IsOn = gen_server:call(?SERVER, get_on),
+    IsOn = gen_server:call(?SERVER, get_on, ?CALL_TIMEOUT),
     on(IsOn).
 
 %%%----------------------------------------------------------------
@@ -161,13 +179,13 @@ init(_) ->
 %%%----------------------------------------------------------------
 handle_call({switch,on,Types}, _From, D) ->
     NowOn = lists:usort(Types ++ D#data.types_on),
-    call_modules(on, Types, NowOn),
+    call_modules(on, Types),
     {reply, {ok,NowOn}, D#data{types_on = NowOn}};
 
 handle_call({switch,off,Types}, _From, D) ->
     StillOn = D#data.types_on -- Types,
-    call_modules(off, Types, StillOn),
-    call_modules(on, StillOn, StillOn),
+    call_modules(off, Types),
+    call_modules(on, StillOn),
     {reply, {ok,StillOn}, D#data{types_on = StillOn}};
 
 handle_call(get_on, _From, D) ->
@@ -193,52 +211,54 @@ handle_info(C, D) ->
 ssh_modules_with_trace() ->
     {ok,AllSshModules} = application:get_key(ssh, modules),
     [M || M <- AllSshModules,
-          lists:member({dbg_trace,3}, M:module_info(exports))].
+          {behaviour,Bs} <- M:module_info(attributes),
+          lists:member(?MODULE, Bs)
+    ].
 
 %%%----------------------------------------------------------------
 get_all_trace_flags() ->
-    get_all_trace_flags(ssh_modules_with_trace()).
-
-get_all_trace_flags(Modules) ->
     lists:usort(
-      lists:flatten(
-        lists:foldl(
-          fun(Type, Acc) ->
-                  call_modules(flags, Type, undefined, Acc, Modules)
-          end, [timestamp], ?ALL_DBG_TYPES))).
+      lists:flatten([timestamp |  call_modules(flags, ?ALL_DBG_TYPES)]
+                   )).
 
 %%%----------------------------------------------------------------
 get_all_dbg_types() ->
     lists:usort(
       lists:flatten(
-        call_modules(points, undefined) )).
+        call_modules(points) )).
 
 %%%----------------------------------------------------------------
-call_modules(Cmnd, Type) ->
-    call_modules(Cmnd, Type, undefined).
+call_modules(points) ->
+    F = fun(Mod) -> Mod:ssh_dbg_trace_points() end,
+    fold_modules(F, [], ssh_modules_with_trace()).
 
-call_modules(Cmnd, Type, Arg) ->
-    call_modules(Cmnd, Type, Arg, []).
+call_modules(Cmnd, Types) when is_list(Types) ->
+    F = case Cmnd of
+            flags -> fun(Type) ->
+                             fun(Mod) -> Mod:ssh_dbg_flags(Type) end
+                     end;
+            on -> fun(Type) ->
+                          fun(Mod) -> Mod:ssh_dbg_on(Type) end
+                  end;
+            off -> fun(Type) ->
+                           fun(Mod) -> Mod:ssh_dbg_off(Type) end
+                   end
+        end,
+    lists:foldl(fun(T, Acc) ->
+                        fold_modules(F(T), Acc, ssh_modules_with_trace())
+                end, [], Types).
 
-call_modules(Cmnd, Type, Arg, Acc0) ->
-    call_modules(Cmnd, Type, Arg, Acc0, ssh_modules_with_trace()).
 
-call_modules(Cmnd, Types, Arg, Acc0, Modules) when is_list(Types) ->
-    lists:foldl(
-       fun(Type, Acc) ->
-               call_modules(Cmnd, Type, Arg, Acc, Modules)
-       end, Acc0, Types);
 
-call_modules(Cmnd, Type, Arg, Acc0, Modules) ->
-    lists:foldl(
-      fun(Mod, Acc) ->
-              try Mod:dbg_trace(Cmnd, Type, Arg)
-              of
-                  Result -> [Result|Acc]
-              catch
-                  _:_ -> Acc
-              end
-      end, Acc0, Modules).
+fold_modules(F, Acc0, Modules) ->
+     lists:foldl(
+       fun(Mod, Acc) ->
+               try F(Mod) of
+                   Result -> [Result|Acc]
+               catch
+                   _:_ -> Acc
+               end
+       end, Acc0, Modules).
 
 %%%----------------------------------------------------------------
 switch(X, Type) when is_atom(Type) ->
@@ -253,7 +273,7 @@ switch(X, Types) when is_list(Types) ->
     end,
     case lists:usort(Types) -- ?ALL_DBG_TYPES of
         [] ->
-            gen_server:call(?SERVER, {switch,X,Types});
+            gen_server:call(?SERVER, {switch,X,Types}, ?CALL_TIMEOUT);
         L ->
             {error, {unknown, L}}
     end.
@@ -305,7 +325,9 @@ try_all_types_in_all_modules(TypesOn, Arg, WriteFun, Acc0) ->
               lists:foldl(
                 fun(SshMod,Acc) ->
                         try WriteFun("~n~s ~p ~s~n", 
-                                     [lists:flatten(TS), PID, lists:flatten(SshMod:dbg_trace(format,Type,INFO))],
+                                     [lists:flatten(TS),
+                                      PID,
+                                      lists:flatten(SshMod:ssh_dbg_format(Type, INFO))],
                                      Acc)
                         catch
                             _:_ -> Acc
@@ -331,3 +353,175 @@ ts({_,_,Usec}=Now) when is_integer(Usec) ->
     io_lib:format("~.2.0w:~.2.0w:~.2.0w.~.6.0w",[HH,MM,SS,Usec]);
 ts(_) ->
     "-".
+
+%%%================================================================
+-define(CIRC_BUF, circ_buf).
+
+cbuf_start() ->
+    cbuf_start(20).
+
+cbuf_start(CbufMaxLen) ->
+    put(?CIRC_BUF, {CbufMaxLen,queue:new()}),
+    ok.
+
+
+cbuf_stop_clear() ->
+    case erase(?CIRC_BUF) of
+        undefined ->
+            [];
+        {_CbufMaxLen,Queue} ->
+            queue:to_list(Queue)
+    end.
+
+
+cbuf_in(Value) ->
+    case get(?CIRC_BUF) of
+        undefined ->
+            disabled;
+        {CbufMaxLen,Queue} ->
+            UpdatedQueue =
+                try queue:head(Queue) of
+                    {Value, TS0, Cnt0} ->
+                        %% Same Value as last saved in the queue
+                        queue:in_r({Value, TS0, Cnt0+1},
+                                 queue:drop(Queue)
+                                );
+                    _ ->
+                        queue:in_r({Value, erlang:timestamp(), 1},
+                                   truncate_cbuf(Queue, CbufMaxLen)
+                                )
+                catch
+                    error:empty ->
+                        queue:in_r({Value, erlang:timestamp(), 1}, Queue)
+                end,
+            put(?CIRC_BUF, {CbufMaxLen,UpdatedQueue}),
+            ok
+    end.
+
+
+cbuf_list() ->
+    case get(?CIRC_BUF) of
+        undefined ->
+            [];
+        {_CbufMaxLen,Queue} ->
+            queue:to_list(Queue)
+    end.
+
+
+truncate_cbuf(Q, CbufMaxLen) ->
+    case queue:len(Q) of
+        N when N>=CbufMaxLen ->
+            truncate_cbuf(element(2,queue:out_r(Q)), CbufMaxLen);
+        _ ->
+            Q
+    end.
+
+fmt_cbuf_items() ->
+    lists:flatten(
+      io_lib:format("Circular trace buffer. Latest item first.~n~s~n",
+                    [case get(?CIRC_BUF) of
+                         {Max,_} ->
+                             L = cbuf_list(),
+                             [io_lib:format("==== ~.*w: ~s~n",[num_digits(Max),N,fmt_cbuf_item(X)]) ||
+                                 {N,X} <- lists:zip(lists:seq(1,length(L)), L)
+                             ];
+                         _ ->
+                             io_lib:format("Not started.~n",[])
+                     end])).
+                   
+
+num_digits(0) -> 1;
+num_digits(N) when N>0 -> 1+trunc(math:log10(N)).
+    
+
+fmt_cbuf_item({Value, TimeStamp, N}) ->
+    io_lib:format("~s~s~n~s~n",
+                  [fmt_ts(TimeStamp),
+                   [io_lib:format(" (Repeated ~p times)",[N]) || N>1],
+                   fmt_value(Value)]).
+
+
+fmt_ts(TS = {_,_,Us}) ->
+    {{YY,MM,DD},{H,M,S}} = calendar:now_to_universal_time(TS),
+    io_lib:format("~w-~.2.0w-~.2.0w ~.2.0w:~.2.0w:~.2.0w.~.6.0w UTC",[YY,MM,DD,H,M,S,Us]).
+    
+fmt_value(#circ_buf_entry{module = M,
+                          line = L,
+                          function = {F,A},
+                          pid = Pid,
+                          value = V}) ->
+    io_lib:format("~p:~p  ~p/~p ~p~n~s",[M,L,F,A,Pid,fmt_value(V)]);
+fmt_value(Value) ->
+    io_lib:format("~p",[Value]).
+
+%%%================================================================
+
+-record(h, {max_bytes = 65536,
+            bytes_per_line = 16,
+            address_len = 4
+           }).
+
+
+hex_dump(Data) -> hex_dump1(Data, hd_opts([])).
+
+hex_dump(X, Max) when is_integer(Max) ->
+    hex_dump(X, [{max_bytes,Max}]);
+hex_dump(X, OptList) when is_list(OptList) ->
+    hex_dump1(X, hd_opts(OptList)).
+
+hex_dump1(B, Opts) when is_binary(B) -> hex_dump1(binary_to_list(B), Opts);
+hex_dump1(L, Opts) when is_list(L), length(L) > Opts#h.max_bytes ->
+    io_lib:format("~s---- skip ~w bytes----~n", [hex_dump1(lists:sublist(L,Opts#h.max_bytes), Opts),
+                                                 length(L) - Opts#h.max_bytes
+                                                ]);
+hex_dump1(L, Opts0) when is_list(L) ->
+    Opts = Opts0#h{address_len = num_hex_digits(Opts0#h.max_bytes)},
+    Result = hex_dump(L, [{0,[],[]}], Opts),
+    [io_lib:format("~*.s | ~*s | ~s~n"
+                   "~*.c-+-~*c-+-~*c~n",
+                   [Opts#h.address_len, lists:sublist("Address",Opts#h.address_len),
+                    -3*Opts#h.bytes_per_line, lists:sublist("Hexdump",3*Opts#h.bytes_per_line),
+                    "ASCII",
+                    Opts#h.address_len, $-,
+                    3*Opts#h.bytes_per_line, $-,
+                    Opts#h.bytes_per_line, $-
+                   ]) |
+     [io_lib:format("~*.16.0b | ~s~*c | ~s~n",[Opts#h.address_len, N*Opts#h.bytes_per_line,
+                                               lists:reverse(Hexs),
+                                               3*(Opts#h.bytes_per_line-length(Hexs)), $ ,
+                                               lists:reverse(Chars)])
+      || {N,Hexs,Chars}  <- lists:reverse(Result)
+     ]
+    ].
+
+
+hd_opts(L) -> lists:foldl(fun hd_opt/2, #h{}, L).
+
+hd_opt({max_bytes,M},      O) -> O#h{max_bytes=M};
+hd_opt({bytes_per_line,M}, O) -> O#h{bytes_per_line=M}.
+
+
+num_hex_digits(N) when N<16 -> 1;
+num_hex_digits(N) -> trunc(math:ceil(math:log2(N)/4)).
+    
+
+hex_dump([L|Cs], Result0, Opts) when is_list(L) ->
+    Result = hex_dump(L,Result0, Opts),
+    hex_dump(Cs, Result, Opts);
+
+hex_dump(Cs, [{N0,_,Chars}|_]=Lines, Opts) when length(Chars) == Opts#h.bytes_per_line ->
+    hex_dump(Cs, [{N0+1,[],[]}|Lines], Opts);
+
+hex_dump([C|Cs], [{N,Hexs,Chars}|Lines], Opts) ->
+    Asc = if
+              16#20 =< C,C =< 16#7E -> C;
+              true -> $.
+          end,
+    Hex = io_lib:format("~2.16.0b ", [C]),
+    hex_dump(Cs, [{N, [Hex|Hexs], [Asc|Chars]} | Lines], Opts);
+
+hex_dump([], Result, _) ->
+    Result.
+
+    
+    

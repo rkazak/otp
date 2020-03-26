@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@
 -export([t_update_with_3/1, t_update_with_4/1,
          t_get_3/1, t_filter_2/1,
          t_fold_3/1,t_map_2/1,t_size_1/1,
-         t_iterator_1/1,
+         t_iterator_1/1, t_put_opt/1, t_merge_opt/1,
          t_with_2/1,t_without_2/1]).
 
 %%-define(badmap(V,F,Args), {'EXIT', {{badmap,V}, [{maps,F,Args,_}|_]}}).
@@ -48,7 +48,7 @@ all() ->
     [t_update_with_3,t_update_with_4,
      t_get_3,t_filter_2,
      t_fold_3,t_map_2,t_size_1,
-     t_iterator_1,
+     t_iterator_1,t_put_opt,t_merge_opt,
      t_with_2,t_without_2].
 
 t_update_with_3(Config) when is_list(Config) ->
@@ -108,6 +108,8 @@ t_without_2(_Config) ->
     %% error case
     ?badmap(a,without,[[a,b],a]) = (catch maps:without([a,b],id(a))),
     ?badmap(a,without,[{a,b},a]) = (catch maps:without({a,b},id(a))),
+    ?badmap({0,<<>>,97},without,[[],{0,<<>>,97}]) = (catch maps:without([], {0,<<>>,97})),
+    ?badmap({0,<<>>,97},without,[[false, -20, -8],{0,<<>>,97}]) = (catch maps:without([false, -20, -8], {0, <<>>, 97})),
     ?badarg(without,[a,#{}]) = (catch maps:without(a,#{})),
     ok.
 
@@ -120,6 +122,8 @@ t_with_2(_Config) ->
     %% error case
     ?badmap(a,with,[[a,b],a]) = (catch maps:with([a,b],id(a))),
     ?badmap(a,with,[{a,b},a]) = (catch maps:with({a,b},id(a))),
+    ?badmap({0,<<>>,97},with,[[],{0,<<>>,97}]) = (catch maps:with([], {0,<<>>,97})),
+    ?badmap({0,<<>>,97},with,[[false, -20, -8],{0,<<>>,97}]) = (catch maps:with([false, -20, -8], {0, <<>>, 97})),
     ?badarg(with,[a,#{}]) = (catch maps:with(a,#{})),
     ok.
 
@@ -200,6 +204,28 @@ iter_kv(I) ->
             [{K,V} | iter_kv(NI)]
     end.
 
+t_put_opt(Config) when is_list(Config) ->
+    Value = id(#{complex => map}),
+    Map = id(#{a => Value}),
+    true = erts_debug:same(maps:put(a, Value, Map), Map),
+    ok.
+
+t_merge_opt(Config) when is_list(Config) ->
+    Small = id(#{a => 1}),
+    true = erts_debug:same(maps:merge(#{}, Small), Small),
+    true = erts_debug:same(maps:merge(Small, #{}), Small),
+    true = erts_debug:same(maps:merge(Small, Small), Small),
+
+    Large = maps:from_list([{I,I}||I<-lists:seq(1,200)]),
+    true = erts_debug:same(maps:merge(#{}, Large), Large),
+    true = erts_debug:same(maps:merge(Large, #{}), Large),
+    true = erts_debug:same(maps:merge(Large, Large), Large),
+
+    List = id([a|b]),
+    ?badmap([a|b],merge,[[a|b],[a|b]]) = (catch maps:merge(List, List)),
+
+    ok.
+
 t_size_1(Config) when is_list(Config) ->
       0 = maps:size(#{}),
      10 = maps:size(maps:from_list([{{"k",I},I}||I<-lists:seq(1,10)])),
@@ -211,8 +237,11 @@ t_size_1(Config) when is_list(Config) ->
     600 = maps:size(maps:from_list([{{"k",I},I}||I<-lists:seq(1,600)])),
 
     %% error case
-    ?badmap(a,size,[a]) = (catch maps:size(id(a))),
-    ?badmap(<<>>,size,[<<>>]) = (catch maps:size(id(<<>>))),
+    %%
+    %% Note that the stack trace is ignored because the compiler may have
+    %% rewritten maps:size/2 to map_size.
+    {'EXIT', {{badmap,a}, _}} = (catch maps:size(id(a))),
+    {'EXIT', {{badmap,<<>>}, _}} = (catch maps:size(id(<<>>))),
     ok.
 
 id(I) -> I.

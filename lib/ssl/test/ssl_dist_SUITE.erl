@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2019. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@
 -include("ssl_dist_test_lib.hrl").
 
 %% Note: This directive should only be used in test suites.
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
 
 -define(DEFAULT_TIMETRAP_SECS, 240).
 
@@ -116,7 +116,6 @@ basic_test(NH1, NH2, _) ->
     Node1 = NH1#node_handle.nodename,
     Node2 = NH2#node_handle.nodename,
     pong = apply_on_ssl_node(NH1, fun () -> net_adm:ping(Node2) end),
-
     [Node2] = apply_on_ssl_node(NH1, fun () -> nodes() end),
     [Node1] = apply_on_ssl_node(NH2, fun () -> nodes() end),
 
@@ -311,9 +310,11 @@ listen_port_options(Config) when is_list(Config) ->
     catch
 	_:Reason ->
 	    stop_ssl_node(NH2),
+	    stop_ssl_node(NH1),
 	    ct:fail(Reason)
     end,
     stop_ssl_node(NH2),
+    stop_ssl_node(NH1),
     success(Config).
 
 %%--------------------------------------------------------------------
@@ -724,7 +725,8 @@ setup_certs(Config) ->
     ok = file:make_dir(NodeDir),
     ok = file:make_dir(RGenDir),
     make_randfile(RGenDir),
-    {ok, _} = make_certs:all(RGenDir, NodeDir),
+    [Hostname|_] = string:split(net_adm:localhost(), ".", all),
+    {ok, _} = make_certs:all(RGenDir, NodeDir, [{hostname,Hostname}]),
     SDir = filename:join([NodeDir, "server"]),
     SC = filename:join([SDir, "cert.pem"]),
     SK = filename:join([SDir, "key.pem"]),

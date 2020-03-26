@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2001-2016. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2020. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 -include("ei_accept_SUITE_data/ei_accept_test_cases.hrl").
 
 -export([all/0, suite/0,
+         init_per_testcase/2,
          ei_accept/1, ei_threaded_accept/1,
          monitor_ei_process/1]).
 
@@ -38,9 +39,19 @@ all() ->
     [ei_accept, ei_threaded_accept,
      monitor_ei_process].
 
+init_per_testcase(Case, Config) ->
+    runner:init_per_testcase(?MODULE, Case, Config).
+
 ei_accept(Config) when is_list(Config) ->
-    P = runner:start(?interpret),
-    0 = ei_connect_init(P, 42, erlang:get_cookie(), 0),
+    [ei_accept_do(Config, CR, SI)
+     || CR <- [0,21],
+        SI <- [default, ussi]],
+    ok.
+
+ei_accept_do(Config, CompatRel, SockImpl) ->
+    io:format("CompatRel=~p, SockImpl=~p\n", [CompatRel, SockImpl]),
+    P = runner:start(Config, ?interpret),
+    0 = ei_connect_init(P, 42, erlang:get_cookie(), 0, CompatRel, SockImpl),
 
     Myname = hd(tl(string:tokens(atom_to_list(node()), "@"))),
     io:format("Myname ~p ~n",  [Myname]),
@@ -48,20 +59,24 @@ ei_accept(Config) when is_list(Config) ->
     io:format("EINode ~p ~n",  [EINode]),
 
     %% We take this opportunity to also test export-funs and bit-strings
-    %% with (ugly) tuple fallbacks.
+    %% with (ugly) tuple fallbacks in OTP 21 and older.
     %% Test both toward pending connection and established connection.
     RealTerms = [<<1:1>>,     fun lists:map/2],
-    Fallbacks = [{<<128>>,1}, {lists,map}],
+    EncTerms = case CompatRel of
+                   0 -> RealTerms;
+                   21 -> [{<<128>>,1}, {lists,map}]
+                end,
 
     Self = self(),
     Funny = fun() -> hello end,
     TermToSend = {call, Self, "Test", Funny, RealTerms},
-    TermToGet  = {call, Self, "Test", Funny, Fallbacks},
+    TermToGet  = {call, Self, "Test", Funny, EncTerms},
     Port = 6543,
     {ok, ListenFd} = ei_publish(P, Port),
     {any, EINode} ! TermToSend,
 
-    {ok, Fd, _Node} = ei_accept(P, ListenFd),
+    {ok, Fd, Node} = ei_accept(P, ListenFd),
+    Node = node(),
     Got1 = ei_receive(P, Fd),
 
     %% Send again, now without auto-connect
@@ -77,12 +92,14 @@ ei_accept(Config) when is_list(Config) ->
 
 ei_threaded_accept(Config) when is_list(Config) ->
     Einode = filename:join(proplists:get_value(data_dir, Config), "eiaccnode"),
-    N = 1, % 3,
-    Host = atom_to_list(node()),
-    Port = 6767,
-    start_einode(Einode, N, Host, Port),
+    ei_threaded_accept_do(Einode, default),
+    ei_threaded_accept_do(Einode, ussi),
+    ok.
+
+ei_threaded_accept_do(Einode, SockImpl) ->
+    N = 3,
+    start_einode(Einode, N, SockImpl),
     io:format("started eiaccnode"),
-    %%spawn_link(fun() -> start_einode(Einode, N, Host, Port) end),
     TestServerPid = self(),
     [spawn_link(fun() -> send_rec_einode(I, TestServerPid) end) || I <- lists:seq(0, N-1)],
     [receive I -> ok end || I <- lists:seq(0, N-1) ],
@@ -91,15 +108,14 @@ ei_threaded_accept(Config) when is_list(Config) ->
 
 %% Test erlang:monitor toward erl_interface "processes"
 monitor_ei_process(Config) when is_list(Config) ->
-    P = runner:start(?interpret),
-    0 = ei_connect_init(P, 42, erlang:get_cookie(), 0),
+    P = runner:start(Config, ?interpret),
+    0 = ei_connect_init(P, 42, erlang:get_cookie(), 0, 0, default),
 
     Myname = hd(tl(string:tokens(atom_to_list(node()), "@"))),
     io:format("Myname ~p ~n",  [Myname]),
     EINode = list_to_atom("c42@"++Myname),
     io:format("EINode ~p ~n",  [EINode]),
 
-    Self = self(),
     Port = 6543,
     {ok, ListenFd} = ei_publish(P, Port),
     MRef1 = erlang:monitor(process, {any, EINode}),
@@ -117,10 +133,19 @@ monitor_ei_process(Config) when is_list(Config) ->
 
     runner:finish(P),
 
-    [{'DOWN', MRef1, process, {any, EINode}, noconnection},
-     {'DOWN', MRef2, process, {any, EINode}, noconnection}
-    ] = lists:sort(flush(2, 1000)),
-
+    ok  =receive
+             {'DOWN', MRef1, process, {any, EINode}, noconnection} ->
+                 ok
+         after 1000 ->
+                 timeout
+         end,
+    ok = receive
+             {'DOWN', MRef2, process, {any, EINode}, noconnection} ->
+                 ok
+         after 1000 ->
+                 timeout
+         end,
+    [] = flush(0, 1000),
     ok.
 
 waitfornode(String,0) ->
@@ -156,10 +181,10 @@ send_rec_einode(N, TestServerPid) ->
               ct:fail(EINode)
     end.
 
-start_einode(Einode, N, Host, Port) ->
+start_einode(Einode, N, SockImpl) ->
     Einodecmd = Einode ++ " " ++ atom_to_list(erlang:get_cookie())
-    ++ " " ++ integer_to_list(N) ++ " " ++ Host ++ " "
-    ++ integer_to_list(Port) ++ " nothreads",
+        ++ " " ++ integer_to_list(N)
+        ++ " " ++ atom_to_list(SockImpl),
     io:format("Einodecmd  ~p ~n", [Einodecmd]),      
     open_port({spawn, Einodecmd}, []),
     ok.
@@ -167,8 +192,8 @@ start_einode(Einode, N, Host, Port) ->
 
 %%% Interface functions for ei (erl_interface) functions.
 
-ei_connect_init(P, Num, Cookie, Creation) ->
-    send_command(P, ei_connect_init, [Num,Cookie,Creation]),
+ei_connect_init(P, Num, Cookie, Creation, Compat, SockImpl) ->
+    send_command(P, ei_connect_init, [Num,Cookie,Creation,Compat,SockImpl]),
     case get_term(P) of
         {term,Int} when is_integer(Int) -> Int
     end.

@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>1997</year><year>2016</year>
+      <year>1997</year><year>2020</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -255,12 +255,13 @@
       <tag><marker id="agent_ni_opts"></marker>
         <c><![CDATA[agent_net_if_options() = [agent_net_if_option()] <optional>]]></c></tag>
       <item>
-        <p><c>agent_net_if_option() = {bind_to, bind_to()} |  
-            {sndbuf, sndbuf()} |  
-            {recbuf, recbuf()} |  
-            {no_reuse, no_reuse()} | 
-	    {req_limit, req_limit()} |
-            {filter, agent_net_if_filter_options()}</c></p>
+	<p><c>agent_net_if_option() = {bind_to, bind_to()} |  
+	    {sndbuf,          sndbuf()} |  
+            {recbuf,          recbuf()} |  
+            {no_reuse,        no_reuse()} | 
+	    {req_limit,       req_limit()} |
+            {filter,          agent_net_if_filter_options()} |
+	    {extra_sock_opts, extra_socket_options()}</c></p>
         <p>These options are actually specific to the used module.
           The ones shown here are applicable to the default 
           <c>agent_net_if_module()</c>.</p>
@@ -611,7 +612,7 @@ in so far as it will be converted to the new format if found.
       <tag><marker id="manager_server"></marker>
         <c><![CDATA[server() = [server_opt()] <optional>]]></c></tag>
       <item>
-        <p><c>server_opt() = {timeout, server_timeout()} |  {verbosity, verbosity()}</c></p>
+        <p><c>server_opt() = {timeout, server_timeout()} | {verbosity, verbosity()} | {cbproxy, server_cbproxy()} | {netif_sup, server_nis()}</c></p>
         <p>Specifies the options for the manager server process.</p>
         <p>Default is <c>silence</c>.</p>
       </item>
@@ -630,11 +631,66 @@ in so far as it will be converted to the new format if found.
           The information will have a <em>best before</em> time,
           defined by the <c>Expire</c> time given when calling the
           request function (see 
-          <seealso marker="snmpm#async_get">async_get</seealso>,
-          <seealso marker="snmpm#async_get_next">async_get_next</seealso> and 
-          <seealso marker="snmpm#async_set">async_set</seealso>).</p>
+          <seealso marker="snmpm#async_get2">async_get</seealso>,
+          <seealso marker="snmpm#async_get_next2">async_get_next</seealso> and 
+          <seealso marker="snmpm#async_set2">async_set</seealso>).</p>
         <p>Time in milli-seconds.</p>
         <p>Default is <c>30000</c>.</p>
+      </item>
+
+      <tag><marker id="manager_server_cbproxy"></marker>
+        <c><![CDATA[server_cbproxy() = temporary (default) | permanent <optional>]]></c></tag>
+      <item>
+        <p>This option specifies how the server will handle callback calls.</p>
+	<taglist>
+	  <tag><marker id="manager_server_cbproxy_temporary"></marker>
+	  <c><![CDATA[temporary (default)]]></c></tag>
+	  <item>
+	    <p>A temporary process will be created for each callback call. </p>
+	  </item>
+	  
+	  <tag><marker id="manager_server_cbproxy_temporary"></marker>
+	  <c><![CDATA[permanent]]></c></tag>
+	  <item>
+	    <p>With this the server will create a permanent (named) process that
+	    in effect serializes all callback calls.</p>
+	  </item>
+	</taglist>
+        <p>Default is <c>temporary</c>.</p>
+      </item>
+
+      <tag><marker id="manager_server_nis"></marker>
+        <c><![CDATA[server_nis() = none (default) | {PingTO, PongTO} <optional>]]></c></tag>
+      <item>
+	<p>This option specifies if the server should actively supervise the
+	net-if process.
+	Note that this will only work if the used net-if process actually supports
+	the protocol. See
+	<seealso marker="snmpm_network_interface">snmpm_network_interface</seealso> behaviour for more info. </p>
+	<taglist>
+	  <tag><marker id="manager_server_nis_none"></marker>
+	  <c><![CDATA[none (default)]]></c></tag>
+	  <item>
+	    <p>No active supervision of the net-if process. </p>
+	  </item>
+	  
+	  <tag><marker id="manager_server_nis_active"></marker>
+	  <c><![CDATA[{PingTO :: pos_integer(), PongTO :: pos_integer()}]]></c></tag>
+	  <item>
+	    <p>The <c>PingTO</c> time specifies the between a successful ping
+	    (or start) and the time when a
+	    <seealso marker="snmp_manager_netif#im_ping">ping</seealso>
+	    message is to be sent to the net-if
+	    process (basically the time between ping:s). </p>
+	    <p>The <c>PongTO</c> time specifies how long time the net-if process
+	    has to respond to a ping message, with a
+	    <seealso marker="snmp_manager_netif#om_pong">pong</seealso>
+	    message.
+	    It starts counting when the ping message has been sent.</p>
+	    <p>Both times are in milli seconds.</p>
+	  </item>
+	</taglist>
+	<p>Default is <c>none</c>.</p>
       </item>
 
       <tag><marker id="manager_config"></marker>
@@ -726,10 +782,11 @@ in so far as it will be converted to the new format if found.
         <c><![CDATA[manager_net_if_options() = [manager_net_if_option()] <optional>]]></c></tag>
       <item>
         <p><c>manager_net_if_option() = {bind_to, bind_to()} | 
-          {sndbuf, sndbuf()} | 
-          {recbuf, recbuf()} | 
-          {no_reuse, no_reuse()} |
-          {filter, manager_net_if_filter_options()}</c></p>
+            {sndbuf,          sndbuf()} | 
+            {recbuf,          recbuf()} | 
+            {no_reuse,        no_reuse()} |
+            {filter,          manager_net_if_filter_options()} |
+	    {extra_sock_opts, extra_socket_options()}</c></p>
         <p>These options are actually specific to the used module.
 	The ones shown here are applicable to the default 
 	<c>manager_net_if_module()</c>. </p>
@@ -860,6 +917,16 @@ in so far as it will be converted to the new format if found.
       <item>
         <p>Send buffer size. </p>
         <p>Default value is defined by <c>gen_udp</c>.</p>
+      </item>
+
+      <tag><marker id="extra_sock_opts"></marker>
+        <c><![CDATA[extra_socket_options() = list() <optional>]]></c></tag>
+      <item>
+	<p>A list of arbitrary socket options. </p>
+	<p>This list is not inspected by snmp (other then checking that
+	its a list). Its the users responsibility to ensure that these
+	are valid options and does not conflict with the "normal" options. </p>
+        <p>Default is <c>[]</c>.</p>
       </item>
 
       <tag><marker id="note_store"></marker>

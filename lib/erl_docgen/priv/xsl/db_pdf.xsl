@@ -3,7 +3,7 @@
      #
      # %CopyrightBegin%
      #
-     # Copyright Ericsson AB 2009-2016. All Rights Reserved.
+     # Copyright Ericsson AB 2009-2018. All Rights Reserved.
      #
      # Licensed under the Apache License, Version 2.0 (the "License");
      # you may not use this file except in compliance with the License.
@@ -662,7 +662,7 @@
 
       <fo:flow flow-name="xsl-region-body">
         <fo:block xsl:use-attribute-sets="cover.logo">
-          <fo:external-graphic src="{$logo}"/>
+          <fo:external-graphic src="url('{$logo}')"/>
         </fo:block>
         <fo:block xsl:use-attribute-sets="cover.title" id="cover-page">
           <xsl:apply-templates/>
@@ -980,7 +980,7 @@
 
     </fo:block>
 
-    <xsl:apply-templates select="section|quote|warning|note|br|image|marker|table|p|pre|code|list|taglist|codeinclude|erleval">
+    <xsl:apply-templates select="section|quote|warning|note|br|image|marker|table|p|pre|code|list|taglist|codeinclude">
       <xsl:with-param name="partnum" select="$partnum"/>
       <xsl:with-param name="chapnum"><xsl:number/></xsl:with-param>
     </xsl:apply-templates>
@@ -1656,8 +1656,14 @@
     </xsl:variable>
 
     <fo:block xsl:use-attribute-sets="image">
-      <fo:external-graphic content-width="scale-down-to-fit" inline-progression-dimension.maximum="100%" src="{@file}"/>
-
+      <xsl:choose>
+	<xsl:when test="@width">
+	  <fo:external-graphic content-width="scale-to-fit" width="{@width}" inline-progression-dimension.maximum="100%" src="url('{@file}')"/>
+	</xsl:when>
+	<xsl:otherwise>
+	   <fo:external-graphic content-width="scale-down-to-fit" inline-progression-dimension.maximum="100%" src="url('{@file}')"/>
+	</xsl:otherwise>
+      </xsl:choose>
       <xsl:apply-templates>
         <xsl:with-param name="chapnum" select="$chapnum"/>
         <xsl:with-param name="fignum" select="$fignum"/>

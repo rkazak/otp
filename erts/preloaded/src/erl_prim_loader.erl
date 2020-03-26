@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -297,10 +297,21 @@ check_file_result(Func, Target, {error,Reason}) ->
                         "Target: " ++ TargetStr ++ ". " ++
                         "Function: " ++ atom_to_list(Func) ++ ". " ++ Process
                 end,
-            %% this is equal to calling error_logger:error_report/1 which
-            %% we don't want to do from code_server during system boot
-            error_logger ! {notify,{error_report,group_leader(),
-                                    {self(),std_error,Report}}},
+            %% This is equal to calling logger:error/2 which
+            %% we don't want to do from code_server during system boot.
+            %% We don't want to call logger:timestamp() either.
+            _ = try
+                    logger ! {log,error,#{label=>{?MODULE,file_error},report=>Report},
+                              #{pid=>self(),
+                                gl=>group_leader(),
+                                time=>os:system_time(microsecond),
+                                error_logger=>#{tag=>error_report,
+                                                type=>std_error}}}
+                catch _:_ ->
+                        %% If logger has not been started yet we just display it
+                        erlang:display({?MODULE,file_error}),
+                        erlang:display(Report)
+                end,
             error
     end;
 check_file_result(_, _, Other) ->

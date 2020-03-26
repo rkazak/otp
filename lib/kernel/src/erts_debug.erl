@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2020. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -33,10 +33,22 @@
 
 -export([breakpoint/2, disassemble/1, display/1, dist_ext_to_term/2,
          flat_size/1, get_internal_state/1, instructions/0,
+         interpreter_size/0,
          map_info/1, same/2, set_internal_state/2,
          size_shared/1, copy_shared/1, dirty_cpu/2, dirty_io/2, dirty/3,
-         lcnt_control/1, lcnt_control/2, lcnt_collect/0, lcnt_clear/0]).
+         lcnt_control/1, lcnt_control/2, lcnt_collect/0, lcnt_clear/0,
+         lc_graph/0, lc_graph_to_dot/2, lc_graph_merge/2,
+         alloc_blocks_size/1]).
 
+%% Reroutes calls to the given MFA to error_handler:breakpoint/3
+%%
+%% Note that this is potentially unsafe as compiled code may assume that the
+%% targeted function returns a specific type, triggering undefined behavior if
+%% this function were to return something else.
+%%
+%% For reference, the debugger avoids the issue by purging the affected module
+%% and interpreting all functions in the module, ensuring that no assumptions
+%% are made with regard to return or argument types.
 -spec breakpoint(MFA, Flag) -> non_neg_integer() when
       MFA :: {Module :: module(),
               Function :: atom(),
@@ -89,7 +101,7 @@ copy_shared(_) ->
 
 -spec get_internal_state(W) -> term() when
       W :: reds_left | node_and_dist_references | monitoring_nodes
-         | next_pid | 'DbTable_words' | check_io_debug
+         | next_pid | 'DbTable_words' | check_io_debug | lc_graph
          | process_info_args | processes | processes_bif_info
          | max_atom_out_cache_index | nbalance | available_internal_state
          | force_heap_frags | memory
@@ -114,6 +126,11 @@ get_internal_state(_) ->
 -spec instructions() -> [string()].
 
 instructions() ->
+    erlang:nif_error(undef).
+
+-spec interpreter_size() -> pos_integer().
+
+interpreter_size() ->
     erlang:nif_error(undef).
 
 -spec ic(F) -> Result when
@@ -407,3 +424,140 @@ cont_dis(_, {_,_,_}, _) -> ok.
 
 map_info(_) ->
     erlang:nif_error(undef).
+
+%% Create file "lc_graph.<pid>" with all actual lock dependencies
+%% recorded so far by the VM.
+%% Needs debug VM or --enable-lock-checking config, returns 'notsup' otherwise.
+lc_graph() ->
+    erts_debug:set_internal_state(available_internal_state, true),
+    erts_debug:get_internal_state(lc_graph).
+
+%% Convert "lc_graph.<pid>" file to https://www.graphviz.org dot format.
+lc_graph_to_dot(OutFile, InFile) ->
+    {ok, [LL0]} = file:consult(InFile),
+
+    [{"NO LOCK",0} | LL] = LL0,
+    Map = maps:from_list([{Id, Name} || {Name, Id, _, _} <- LL]),
+
+    case file:open(OutFile, [exclusive]) of
+        {ok, Out} ->
+            ok = file:write(Out, "digraph G {\n"),
+
+            [dot_print_lock(Out, Lck, Map) || Lck <- LL],
+
+            ok = file:write(Out, "}\n"),
+            ok = file:close(Out);
+
+        {error,eexist} ->
+            {"File already exists", OutFile}
+    end.
+
+dot_print_lock(Out, {_Name, Id, Lst, _}, Map) ->
+    [dot_print_edge(Out, From, Id, Map) || From <- Lst],
+    ok.
+
+dot_print_edge(_, 0, _, _) ->
+    ignore; % "NO LOCK"
+dot_print_edge(Out, From, To, Map) ->
+    io:format(Out, "~p -> ~p;\n", [maps:get(From,Map), maps:get(To,Map)]).
+
+
+%% Merge several "lc_graph" files into one file.
+lc_graph_merge(OutFile, InFiles) ->
+    LLs = lists:map(fun(InFile) ->
+                            {ok, [LL]} = file:consult(InFile),
+                            LL
+                    end,
+                    InFiles),
+
+    Res = lists:foldl(fun(A, B) -> lcg_merge(A, B) end,
+                      hd(LLs),
+                      tl(LLs)),
+    case file:open(OutFile, [exclusive]) of
+        {ok, Out} ->
+            try
+                lcg_print(Out, Res)
+            after
+                file:close(Out)
+            end,
+            ok;
+        {error, eexist} ->
+            {"File already exists", OutFile}
+    end.
+
+lcg_merge(A, B) ->
+    lists:zipwith(fun(LA, LB) -> lcg_merge_locks(LA, LB) end,
+                  A, B).
+
+lcg_merge_locks(L, L) ->
+    L;
+lcg_merge_locks({Name, Id, DA, IA}, {Name, Id, DB, IB}) ->
+    Direct = lists:umerge(DA, DB),
+    Indirect = lists:umerge(IA, IB),
+    {Name, Id, Direct, Indirect -- Direct}.
+
+
+lcg_print(Out, LL) ->
+    io:format(Out, "[", []),
+    lcg_print_locks(Out, LL),
+    io:format(Out, "].\n", []),
+    ok.
+
+lcg_print_locks(Out, [{_,_}=NoLock | Rest]) ->
+    io:format(Out, "~p,\n", [NoLock]),
+    lcg_print_locks(Out, Rest);
+lcg_print_locks(Out, [LastLock]) ->
+    io:format(Out, "~w", [LastLock]);
+lcg_print_locks(Out, [Lock | Rest]) ->
+    io:format(Out, "~w,\n", [Lock]),
+    lcg_print_locks(Out, Rest).
+
+
+%% Returns the amount of memory allocated by the given allocator type.
+-spec alloc_blocks_size(Type) -> non_neg_integer() | undefined when
+      Type :: atom().
+
+alloc_blocks_size(Type) ->
+    Allocs = erlang:system_info(alloc_util_allocators),
+    Sizes = erlang:system_info({allocator_sizes, Allocs}),
+    alloc_blocks_size_1(Sizes, Type, 0).
+
+alloc_blocks_size_1([], _Type, 0) ->
+    undefined;
+alloc_blocks_size_1([{_Type, false} | Rest], Type, Acc) ->
+    alloc_blocks_size_1(Rest, Type, Acc);
+alloc_blocks_size_1([{_Type, Instances} | Rest], Type, Acc) ->
+    F = fun ({instance, _, L}, Acc0) ->
+                MBCSPool = case lists:keyfind(mbcs_pool, 1, L) of
+                               {_, Pool} -> Pool;
+                               false -> []
+                           end,
+                {_,MBCS} = lists:keyfind(mbcs, 1, L),
+                {_,SBCS} = lists:keyfind(sbcs, 1, L),
+                Acc1 = sum_block_sizes(MBCSPool, Type, Acc0),
+                Acc2 = sum_block_sizes(MBCS, Type, Acc1),
+                sum_block_sizes(SBCS, Type, Acc2)
+        end,
+    alloc_blocks_size_1(Rest, Type, lists:foldl(F, Acc, Instances));
+alloc_blocks_size_1([], _Type, Acc) ->
+    Acc.
+
+sum_block_sizes([{blocks, List} | Rest], Type, Acc) ->
+    sum_block_sizes(Rest, Type, sum_block_sizes_1(List, Type, Acc));
+sum_block_sizes([_ | Rest], Type, Acc) ->
+    sum_block_sizes(Rest, Type, Acc);
+sum_block_sizes([], _Type, Acc) ->
+    Acc.
+
+sum_block_sizes_1([{Type, L} | Rest], Type, Acc0) ->
+    Acc = lists:foldl(fun({size, Sz,_,_}, Sz0) -> Sz0+Sz;
+                         ({size, Sz}, Sz0) -> Sz0+Sz;
+                         (_, Sz) -> Sz
+                      end, Acc0, L),
+    sum_block_sizes_1(Rest, Type, Acc);
+sum_block_sizes_1([_ | Rest], Type, Acc) ->
+    sum_block_sizes_1(Rest, Type, Acc);
+sum_block_sizes_1([], _Type, Acc) ->
+    Acc.
+
+

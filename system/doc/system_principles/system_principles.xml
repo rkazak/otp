@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>1996</year><year>2015</year>
+      <year>1996</year><year>2020</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -93,7 +93,7 @@ init:stop()</pre>
 {progress,kernel_load_completed}
 {progress,modules_loaded}
 {start,heart}
-{start,error_logger}
+{start,logger}
 ...</pre>
     <p>For a detailed description of the syntax and contents of the
     boot script, see the <c>script(4)</c> manual page in SASL.</p>
@@ -156,7 +156,8 @@ init:stop()</pre>
       command-line flag <c>-mode</c>.</p>
     <pre>
 % <input>erl -mode embedded</input></pre>
-    <p>Default mode is <c>interactive</c>.</p>
+    <p>Default mode is <c>interactive</c> and extra <c>-mode</c> flags are
+      ignored.</p>
     <p>The mode properties are as follows:</p>
     <list type="bulleted">
       <item>In embedded mode, all code is loaded during system startup

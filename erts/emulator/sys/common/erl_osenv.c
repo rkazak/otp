@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2017. All Rights Reserved.
+ * Copyright Ericsson AB 2017-2018. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -75,7 +75,15 @@ static int compare_env_keys(const erts_osenv_data_t a, const erts_osenv_data_t b
 #include "erl_rbtree.h"
 
 static int compare_env_keys(const erts_osenv_data_t a, const erts_osenv_data_t b) {
-    int relation = sys_memcmp(a.data, b.data, MIN(a.length, b.length));
+    int relation;
+
+#ifdef __WIN32__
+    /* Environment variables are case-insensitive on Windows. */
+    relation = _wcsnicmp((const WCHAR*)a.data, (const WCHAR*)b.data,
+                         MIN(a.length, b.length) / sizeof(WCHAR));
+#else
+    relation = sys_memcmp(a.data, b.data, MIN(a.length, b.length));
+#endif
 
     if(relation != 0) {
         return relation;
@@ -159,9 +167,10 @@ void erts_osenv_init(erts_osenv_t *env) {
     env->tree = NULL;
 }
 
-static void destroy_foreach(env_rbtnode_t *node, void *_state) {
+static int destroy_foreach(env_rbtnode_t *node, void *_state, Sint reds) {
     erts_free(ERTS_ALC_T_ENVIRONMENT, node);
     (void)_state;
+    return 1;
 }
 
 void erts_osenv_clear(erts_osenv_t *env) {
@@ -174,7 +183,7 @@ struct __env_merge {
     erts_osenv_t *env;
 };
 
-static void merge_foreach(env_rbtnode_t *node, void *_state) {
+static int merge_foreach(env_rbtnode_t *node, void *_state, Sint reds) {
     struct __env_merge *state = (struct __env_merge*)(_state);
     env_rbtnode_t *existing_node;
 
@@ -183,6 +192,7 @@ static void merge_foreach(env_rbtnode_t *node, void *_state) {
     if(existing_node == NULL || state->overwrite_existing) {
         erts_osenv_put_native(state->env, &node->key, &node->value);
     }
+    return 1;
 }
 
 void erts_osenv_merge(erts_osenv_t *env, const erts_osenv_t *with, int overwrite) {
@@ -200,7 +210,7 @@ struct __env_foreach_term {
     void *user_state;
 };
 
-static void foreach_term_wrapper(env_rbtnode_t *node, void *_state) {
+static int foreach_term_wrapper(env_rbtnode_t *node, void *_state, Sint reds) {
     struct __env_foreach_term *state = (struct __env_foreach_term*)_state;
     Eterm key, value;
 
@@ -210,6 +220,7 @@ static void foreach_term_wrapper(env_rbtnode_t *node, void *_state) {
         node->value.length, (byte*)node->value.data);
 
     state->user_callback(state->process, state->user_state, key, value);
+    return 1;
 }
 
 void erts_osenv_foreach_term(const erts_osenv_t *env, struct process *process,
@@ -306,10 +317,11 @@ struct __env_foreach_native {
     void *user_state;
 };
 
-static void foreach_native_wrapper(env_rbtnode_t *node, void *_state) {
+static int foreach_native_wrapper(env_rbtnode_t *node, void *_state, Sint reds) {
     struct __env_foreach_native *state = (struct __env_foreach_native*)_state;
 
     state->user_callback(state->user_state, &node->key, &node->value);
+    return 1;
 }
 
 void erts_osenv_foreach_native(const erts_osenv_t *env, void *state,

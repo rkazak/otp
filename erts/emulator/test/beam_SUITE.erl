@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -132,7 +132,8 @@ packed_registers(Config) when is_list(Config) ->
 	       "_ = id(2),\n"
 	       "id([_@Vars,_@NewVars,_@MoreNewVars]).\n"
 	       "id(I) -> I.\n"]),
-    merl:compile_and_load(Code),
+
+    merl:compile_and_load(Code, []),
 
     %% Optionally print the generated code.
     PrintCode = false,                          %Change to true to print code.

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -638,7 +638,7 @@ string_to_handle(Str, Options, Bindings) when is_list(Str) ->
             case erl_scan:string(Str, 1, [text]) of
                 {ok, Tokens, _} ->
                     ScanRes =
-                        case lib:extended_parse_exprs(Tokens) of
+                        case erl_eval:extended_parse_exprs(Tokens) of
                             {ok, [Expr0], SBs} ->
                                 {ok, Expr0, SBs};
                             {ok, _ExprList, _SBs} ->
@@ -785,7 +785,7 @@ merge_binding_structs(Bs1, Bs2) ->
 
 aux_name1(Name, N, AllNames) ->
     SN = name_suffix(Name, N),
-    case sets:is_element(SN, AllNames) of
+    case gb_sets:is_member(SN, AllNames) of
         true -> aux_name1(Name, N + 1, AllNames);
         false -> {SN, N}
     end.
@@ -1196,8 +1196,8 @@ abstract1({table, TableDesc}, _NElements, _Depth, _A) ->
             {ok, Tokens, _} =
                 erl_scan:string(lists:flatten(TableDesc++"."), 1, [text]),
             {ok, Es, Bs} =
-                lib:extended_parse_exprs(Tokens),
-            [Expr] = lib:subst_values_for_vars(Es, Bs),
+                erl_eval:extended_parse_exprs(Tokens),
+            [Expr] = erl_eval:subst_values_for_vars(Es, Bs),
             special(Expr);
         false -> % abstract expression
             TableDesc
@@ -1357,7 +1357,7 @@ flatten_abstr(E, VN, _Vars, Body) ->
     {VN, Body, E}.
 
 abstract_vars(Abstract) ->
-    sets:from_list(ordsets:to_list(vars(Abstract))).
+    gb_sets:from_list(ordsets:to_list(vars(Abstract))).
 
 collect([]=L) ->
     L;
@@ -3749,7 +3749,7 @@ maybe_error_logger(Name, Why) ->
 	expand_stacktrace(),
     Trimmer = fun(M, _F, _A) -> M =:= erl_eval end,
     Formater = fun(Term, I) -> io_lib:print(Term, I, 80, -1) end,
-    X = lib:format_stacktrace(1, Stacktrace, Trimmer, Formater),
+    X = erl_error:format_stacktrace(1, Stacktrace, Trimmer, Formater),
     error_logger:Name("qlc: temporary file was needed for ~w\n~ts\n",
                       [Why, lists:flatten(X)]).
 

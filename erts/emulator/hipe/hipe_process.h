@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2001-2017. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2018. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,15 +80,6 @@ static __inline__ void hipe_delete_process(struct hipe_process_state *p)
 {
     if (p->nstack)
 	erts_free(ERTS_ALC_T_HIPE_STK, (void*)p->nstack);
-}
-
-struct hipe_process_state_smp {
-    int have_receive_locks;
-};
-
-static __inline__ void hipe_init_process_smp(struct hipe_process_state_smp *p)
-{
-    p->have_receive_locks = 0;
 }
 
 #endif /* HIPE_PROCESS_H */

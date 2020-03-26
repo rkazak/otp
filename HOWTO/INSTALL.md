@@ -72,13 +72,11 @@ also find the utilities needed for building the documentation.
     as the binary command program `openssl`. At least version 0.9.8 of OpenSSL is required.
     Read more and download from <http://www.openssl.org>.
 *   Oracle Java SE JDK -- The Java Development Kit (Standard Edition).
-    Required for building the application `jinterface` and parts of `ic` and `orber`.
+    Required for building the application `jinterface`.
     At least version 1.6.0 of the JDK is required.
 
     Download from <http://www.oracle.com/technetwork/java/javase/downloads>.
     We have also tested with IBM's JDK 1.6.0.
-*   X Windows -- Development headers and libraries are needed
-    to build the Erlang/OTP application `gs` on Unix/Linux.
 *   `flex` -- Headers and libraries are needed to build the flex
     scanner for the `megaco` application on Unix/Linux.
 *   wxWidgets -- Toolkit for GUI applications.
@@ -219,6 +217,12 @@ Build the documentation.
 
     $ make docs
 
+It is possible to limit which types of documentation is build by passing the `DOC_TARGETS`
+environment variable to `make docs`. The currently available types are: `html`, `pdf`, `man` and
+`chunks`. Example:
+
+    $ make docs DOC_TARGETS=chunks
+
 #### Build Issues ####
 
 We have sometimes experienced problems with Oracle's `java` running out of
@@ -249,6 +253,8 @@ or using the `release_docs` target.
 
         $ make release_docs RELEASE_ROOT=<release dir>
 
+It is possible to limit which types of documentation is released using the same `DOC_TARGETS`
+environment variable as when building documentation.
 
 ### Accessing the Documentation ###
 
@@ -263,6 +269,8 @@ After installation you can access the documentation by
 *   Browsing the html pages by loading the page `/usr/local/lib/erlang/doc/erlang/index.html`
     or `<BaseDir>/lib/erlang/doc/erlang/index.html` if the prefix option has been used.
 
+*   Read the embedded documentation by using the built-in shell functions `h/1,2,3` or
+    `ht/1,2,3`.
 
 ### How to Install the Pre-formatted Documentation ###
 
@@ -340,6 +348,8 @@ use the `--prefix` argument like this: `./configure --prefix=<Dir>`.
 Some of the available `configure` options are:
 
 *   `--prefix=PATH` - Specify installation prefix.
+*   `--disable-parallel-configure` - Disable parallel execution of
+    `configure` scripts (parallel execution is enabled by default)
 *   `--{enable,disable}-kernel-poll` - Kernel poll support (enabled by
     default if possible)
 *   `--{enable,disable}-hipe` - HiPE support (enabled by default on supported
@@ -353,6 +363,7 @@ Some of the available `configure` options are:
     `(g)cc`
 *   `--enable-m32-build` - Build 32-bit binaries using the `-m32` flag to
     `(g)cc`
+*   `--{enable,disable}-pie` - Build position independent executable binaries.
 *   `--with-assumed-cache-line-size=SIZE` - Set assumed cache-line size in
     bytes. Default is 64. Valid values are powers of two between and
     including 16 and 8192. The runtime system use this value in order to

@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>1996</year><year>2017</year>
+      <year>1996</year><year>2018</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -28,7 +28,7 @@
     <date></date>
     <rev></rev>
   </header>
-  <module>gen_event</module>
+  <module since="">gen_event</module>
   <modulesummary>Generic event handling behavior.</modulesummary>
   <description>
     <p>This behavior module provides event handling functionality. It
@@ -50,6 +50,7 @@
 gen_event module                   Callback module
 ----------------                   ---------------
 gen_event:start
+gen_event:start_monitor
 gen_event:start_link       ----->  -
 
 gen_event:add_handler
@@ -58,6 +59,7 @@ gen_event:add_sup_handler  ----->  Module:init/1
 gen_event:notify
 gen_event:sync_notify      ----->  Module:handle_event/2
 
+gen_event:send_request
 gen_event:call             ----->  Module:handle_call/2
 
 -                          ----->  Module:handle_info/2
@@ -126,11 +128,20 @@ gen_event:stop             ----->  Module:terminate/2
     <datatype>
       <name name="del_handler_ret"/>
     </datatype>
+    <datatype>
+      <name name="request_id"/>
+      <desc>
+	<p>
+	  A request handle, see <seealso marker="#send_request/3"> <c>send_request/3</c> </seealso>
+	  for details.
+	</p>
+      </desc>
+    </datatype>
   </datatypes>
 
   <funcs>
     <func>
-      <name>add_handler(EventMgrRef, Handler, Args) -> Result</name>
+      <name since="">add_handler(EventMgrRef, Handler, Args) -> Result</name>
       <fsummary>Add an event handler to a generic event manager.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -178,7 +189,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>add_sup_handler(EventMgrRef, Handler, Args) -> Result</name>
+      <name since="">add_sup_handler(EventMgrRef, Handler, Args) -> Result</name>
       <fsummary>Add a supervised event handler to a generic event manager.
       </fsummary>
       <type>
@@ -207,7 +218,7 @@ gen_event:stop             ----->  Module:terminate/2
           </item>
           <item>
             <p>If the event handler is deleted later, the event manager
-              sends a message<c>{gen_event_EXIT,Handler,Reason}</c> to
+              sends a message <c>{gen_event_EXIT,Handler,Reason}</c> to
               the calling process. <c>Reason</c> is one of the following:</p>
             <list type="bulleted">
               <item>
@@ -241,8 +252,8 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>call(EventMgrRef, Handler, Request) -> Result</name>
-      <name>call(EventMgrRef, Handler, Request, Timeout) -> Result</name>
+      <name since="">call(EventMgrRef, Handler, Request) -> Result</name>
+      <name since="">call(EventMgrRef, Handler, Request, Timeout) -> Result</name>
       <fsummary>Make a synchronous call to a generic event manager.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -284,8 +295,42 @@ gen_event:stop             ----->  Module:terminate/2
       </desc>
     </func>
 
+
+    <func>
+      <name since="OTP-23">check_response(Msg, RequestId) -> Result</name>
+      <fsummary>Check if a message is a reply from a server.</fsummary>
+      <type>
+	<v>Msg = term()</v>
+	<v>RequestId = request_id()</v>
+	<v>Result = {reply, Reply} | no_reply | {error, Error}</v>
+	<v>Reply = Error = term()</v>
+      </type>
+      <desc>
+	<p>
+	  This function is used to check if a previously received
+	  message, for example by <c>receive</c> or
+	  <c>handle_info/2</c>, is a result of a request made with
+	  <seealso marker="#send_request/3"><c>send_request/3</c></seealso>.
+	  If <c>Msg</c> is a reply to the handle <c>RequestId</c>
+	  the result of the request is returned in <c>Reply</c>.
+	  Otherwise returns <c>no_reply</c> and no cleanup is done, and
+	  thus the function shall be invoked repeatedly until a reply
+	  is returned.
+	</p>
+	<p>
+	  If the specified event handler is not
+          installed, the function returns <c>{error,bad_module}</c>. If
+          the callback function fails with <c>Reason</c> or returns an
+          unexpected value <c>Term</c>, this function returns
+          <c>{error,{'EXIT',Reason}}</c> or <c>{error,Term}</c>,
+          respectively. If the event manager dies before or during the
+	  request this function returns <c>{error,{Reason, EventMgrRef}}</c>.
+	</p>
+      </desc>
+    </func>
+
     <func> 
-      <name>delete_handler(EventMgrRef, Handler, Args) -> Result</name>
+      <name since="">delete_handler(EventMgrRef, Handler, Args) -> Result</name>
       <fsummary>Delete an event handler from a generic event manager.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -318,8 +363,8 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>notify(EventMgrRef, Event) -> ok</name>
-      <name>sync_notify(EventMgrRef, Event) -> ok</name>
+      <name since="">notify(EventMgrRef, Event) -> ok</name>
+      <name since="">sync_notify(EventMgrRef, Event) -> ok</name>
       <fsummary>Notify an event manager about an event.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -348,10 +393,53 @@ gen_event:stop             ----->  Module:terminate/2
       </desc>
     </func>
 
+
     <func>
-      <name>start() -> Result</name>
-      <name>start(EventMgrName | Options) -> Result</name>
-      <name>start(EventMgrName, Options) -> Result</name>
+      <name since="OTP-23">send_request(EventMgrRef, Handler, Request) -> RequestId</name>
+      <fsummary>Send a request to a generic event manager.</fsummary>
+      <type>
+        <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}</v>
+        <v>&nbsp;&nbsp;| {via,Module,ViaName} | pid()</v>
+        <v>&nbsp;Node = atom()</v>
+        <v>&nbsp;GlobalName = ViaName = term()</v>
+	<v>Handler = Module | {Module,Id}</v>
+        <v>&nbsp;Module = atom()</v>
+        <v>&nbsp;Id = term()</v>
+        <v>Request = term()</v>
+        <v>RequestId = request_id()</v>
+      </type>
+      <desc>
+        <p>
+	  Sends a request to event handler <c>Handler</c> installed in
+	  event manager <c>EventMgrRef</c> and returns a handle
+	  <c>RequestId</c>.  The return value <c>RequestId</c> shall
+	  later be used with <seealso marker="#wait_response/2">
+	  <c>wait_response/2</c></seealso> or <seealso
+	  marker="#check_response/2">
+	  <c>check_response/2</c></seealso> in the same process to
+	  fetch the actual result of the request.
+	</p>
+	<p>
+	  The call <c>gen_event:wait_response(gen_event:send_request(EventMgrRef,Handler,Request), Timeout)</c>
+	  can be seen as equivalent to
+	  <seealso marker="#call/3"><c>gen_event:call(EventMgrRef,Handler,Request,Timeout)</c></seealso>,
+	  ignoring the error handling.
+	</p>
+	<p>
+	  The event manager calls <seealso marker="#Module:handle_call/2">
+          <c>Module:handle_call/2</c></seealso> to handle the request.
+	</p>
+        <p>
+	  <c>Request</c> is any term that is passed as one of
+          the arguments to <c>Module:handle_call/3</c>.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="">start() -> Result</name>
+      <name since="">start(EventMgrName | Options) -> Result</name>
+      <name since="OTP 20.0">start(EventMgrName, Options) -> Result</name>
       <fsummary>Create a stand-alone event manager process.</fsummary>
       <type>
         <v>EventMgrName = {local,Name} | {global,GlobalName} | {via,Module,ViaName}</v>
@@ -375,9 +463,9 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>start_link() -> Result</name>
-      <name>start_link(EventMgrName | Options) -> Result</name>
-      <name>start_link(EventMgrName, Options) -> Result</name>
+      <name since="">start_link() -> Result</name>
+      <name since="">start_link(EventMgrName | Options) -> Result</name>
+      <name since="OTP 20.0">start_link(EventMgrName, Options) -> Result</name>
       <fsummary>Create a generic event manager process in a supervision tree.
       </fsummary>
       <type>
@@ -436,8 +524,42 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>stop(EventMgrRef) -> ok</name>
-      <name>stop(EventMgrRef, Reason, Timeout) -> ok</name>
+      <name since="OTP @OTP-16120@">start_monitor() -> Result</name>
+      <name since="OTP @OTP-16120@">start_monitor(EventMgrName | Options) -> Result</name>
+      <name since="OTP @OTP-16120@">start_monitor(EventMgrName, Options) -> Result</name>
+      <fsummary>Create a stand-alone event manager process.</fsummary>
+      <type>
+        <v>EventMgrName = {local,Name} | {global,GlobalName} | {via,Module,ViaName}</v>
+        <v>&nbsp;Name = atom()</v>
+        <v>&nbsp;GlobalName = ViaName = term()</v>
+        <v>Options = [Option]</v>
+        <v>&nbsp;Option = {debug,Dbgs} | {timeout,Time} | {hibernate_after,HibernateAfterTimeout} | {spawn_opt,SOpts}</v>
+        <v>&nbsp;&nbsp;Dbgs = [Dbg]</v>
+        <v>&nbsp;&nbsp;&nbsp;Dbg = trace | log | statistics | {log_to_file,FileName} | {install,{Func,FuncState}}</v>
+        <v>&nbsp;&nbsp;SOpts = [term()]</v>
+        <v>Result = {ok,{Pid,Mon}} | {error,{already_started,Pid}}</v>
+        <v>&nbsp;Pid = pid()</v>
+      </type>
+      <desc>
+        <p>Creates a stand-alone event manager process, that is, an event
+          manager that is not part of a supervision tree (and thus has
+          no supervisor) and atomically sets up a monitor to
+	  the newly created process.</p>
+        <p>For a description of the arguments and return values, see
+          <seealso marker="#start_link/0"><c>start_link/0,1</c></seealso>.
+	Note that the return value on successful start differs from
+	<c>start_link/3,4</c>. <c>start_monitor/3,4</c> will return
+	<c>{ok,{Pid,Mon}}</c> where <c>Pid</c> is the process identifier
+	of the process, and <c>Mon</c> is a reference to the monitor
+	set up to monitor the process. If the start is not successful,
+	the caller will be blocked until the <c>DOWN</c> message has
+	been received and removed from the message queue.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="">stop(EventMgrRef) -> ok</name>
+      <name since="OTP 18.0">stop(EventMgrRef, Reason, Timeout) -> ok</name>
       <fsummary>Terminate a generic event manager.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -458,8 +580,7 @@ gen_event:stop             ----->  Module:terminate/2
           with the expected reason. Any other reason than <c>normal</c>,
           <c>shutdown</c>, or <c>{shutdown,Term}</c> causes an
           error report to be issued using
-          <seealso marker="kernel:error_logger#format/2">
-          <c>error_logger:format/2</c></seealso>.
+          <seealso marker="kernel:logger"><c>logger(3)</c></seealso>.
           The default <c>Reason</c> is <c>normal</c>.</p>
         <p><c>Timeout</c> is an integer greater than zero that
           specifies how many milliseconds to wait for the event manager to
@@ -475,7 +596,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>swap_handler(EventMgrRef, {Handler1,Args1}, {Handler2,Args2}) -> Result</name>
+      <name since="">swap_handler(EventMgrRef, {Handler1,Args1}, {Handler2,Args2}) -> Result</name>
       <fsummary>Replace an event handler in a generic event manager.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -522,7 +643,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>swap_sup_handler(EventMgrRef, {Handler1,Args1}, {Handler2,Args2}) -> Result</name>
+      <name since="">swap_sup_handler(EventMgrRef, {Handler1,Args1}, {Handler2,Args2}) -> Result</name>
       <fsummary>Replace an event handler in a generic event manager.</fsummary>
       <type>
         <v>EventMgrRef = Name | {Name,Node} | {global,GlobalName}
@@ -547,7 +668,50 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>which_handlers(EventMgrRef) -> [Handler]</name>
+      <name since="OTP-23">wait_response(RequestId, Timeout) -> Result</name>
+      <fsummary>Wait for a reply from a server.</fsummary>
+      <type>
+	<v>RequestId = request_id()</v>
+	<v>Reply = term()</v>
+	<v>Timeout = timeout()</v>
+	<v>Result = {reply, Reply} | timeout | {error, Error}</v>
+	<v>Reply = Error = term()</v>
+      </type>
+      <desc>
+	<p>
+	This function is used to wait for a reply of a request made with
+	<seealso marker="#send_request/3"><c>send_request/3</c></seealso>
+	from the event manager. This function must be called from the same
+	process from which <seealso marker="#send_request/3"><c>send_request/3</c></seealso>
+	was made.
+	</p>
+	<p>
+	  <c>Timeout</c> is an integer greater then or equal to zero
+	  that specifies how many milliseconds to wait for an reply, or
+	  the atom <c>infinity</c> to wait indefinitely.
+	  If no reply is received within the specified
+	  time, the function returns <c>timeout</c> and no cleanup is
+	  done, and thus the function must be invoked repeatedly until a
+	  reply is returned.
+	</p>
+	<p>
+	  The return value <c>Reply</c> is defined in the return value
+	  of <c>Module:handle_call/3</c>.
+	</p>
+	<p>
+	  If the specified event handler is not
+          installed, the function returns <c>{error,bad_module}</c>. If
+          the callback function fails with <c>Reason</c> or returns an
+          unexpected value <c>Term</c>, this function returns
+          <c>{error,{'EXIT',Reason}}</c> or <c>{error,Term}</c>,
+          respectively. If the event manager dies before or during the
+	  request this function returns <c>{error,{Reason, EventMgrRef}}</c>.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="">which_handlers(EventMgrRef) -> [Handler]</name>
       <fsummary>Return all event handlers installed in a generic event manager.
       </fsummary>
       <type>
@@ -576,7 +740,7 @@ gen_event:stop             ----->  Module:terminate/2
 
   <funcs>
     <func>
-      <name>Module:code_change(OldVsn, State, Extra) -> {ok, NewState}</name>
+      <name since="">Module:code_change(OldVsn, State, Extra) -> {ok, NewState}</name>
       <fsummary>Update the internal state during upgrade/downgrade.</fsummary>
       <type>
         <v>OldVsn = Vsn | {down, Vsn}</v>
@@ -612,7 +776,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>Module:format_status(Opt, [PDict, State]) -> Status</name>
+      <name since="OTP R14B">Module:format_status(Opt, [PDict, State]) -> Status</name>
       <fsummary>Optional function for providing a term describing the
         current event handler state.</fsummary>
       <type>
@@ -668,7 +832,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>Module:handle_call(Request, State) -> Result</name>
+      <name since="">Module:handle_call(Request, State) -> Result</name>
       <fsummary>Handle a synchronous request.</fsummary>
       <type>
         <v>Request = term()</v>
@@ -699,7 +863,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>Module:handle_event(Event, State) -> Result</name>
+      <name since="">Module:handle_event(Event, State) -> Result</name>
       <fsummary>Handle an event.</fsummary>
       <type>
         <v>Event = term()</v>
@@ -757,7 +921,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>Module:handle_info(Info, State) -> Result</name>
+      <name since="">Module:handle_info(Info, State) -> Result</name>
       <fsummary>Handle an incoming message.</fsummary>
       <type>
         <v>Info = term()</v>
@@ -776,7 +940,7 @@ gen_event:stop             ----->  Module:terminate/2
           <p>This callback is optional, so callback modules need not
             export it. The <c>gen_event</c> module provides a default
             implementation of this function that logs about the unexpected
-            <c>Info</c> message, drops it and returns <c>{noreply, State}</c>.</p>
+            <c>Info</c> message, drops it and returns <c>{ok, State}</c>.</p>
         </note>
         <p>This function is called for each installed event handler when
           an event manager receives any other message than an event or
@@ -789,7 +953,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>Module:init(InitArgs) -> {ok,State} | {ok,State,hibernate} | {error,Reason}</name>
+      <name since="">Module:init(InitArgs) -> {ok,State} | {ok,State,hibernate} | {error,Reason}</name>
       <fsummary>Initialize an event handler.</fsummary>
       <type>
         <v>InitArgs = Args | {Args,Term}</v>
@@ -826,7 +990,7 @@ gen_event:stop             ----->  Module:terminate/2
     </func>
 
     <func>
-      <name>Module:terminate(Arg, State) -> term()</name>
+      <name since="">Module:terminate(Arg, State) -> term()</name>
       <fsummary>Clean up before deletion.</fsummary>
       <type>
         <v>Arg = Args | {stop,Reason} | stop | remove_handler</v>

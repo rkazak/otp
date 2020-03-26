@@ -66,7 +66,6 @@
 	 t_find_opaque_mismatch/3,
          t_find_unknown_opaque/3,
 	 t_fixnum/0,
-	 t_map/2,
 	 t_non_neg_fixnum/0,
 	 t_pos_fixnum/0,
 	 t_float/0,
@@ -108,13 +107,14 @@
 	 t_is_bitstr/1, t_is_bitstr/2,
 	 t_is_bitwidth/1,
 	 t_is_boolean/1, t_is_boolean/2,
-	 %% t_is_byte/1,
-	 %% t_is_char/1,
+         t_is_byte/1,
+         t_is_char/1,
 	 t_is_cons/1, t_is_cons/2,
 	 t_is_equal/2,
 	 t_is_fixnum/1,
 	 t_is_float/1, t_is_float/2,
 	 t_is_fun/1, t_is_fun/2,
+         t_is_identifier/1,
 	 t_is_instance/2,
 	 t_is_integer/1, t_is_integer/2,
 	 t_is_list/1,
@@ -154,6 +154,7 @@
 	 t_map_update/2, t_map_update/3,
 	 t_map_pairwise_merge/4,
 	 t_map_put/2, t_map_put/3,
+         t_map_remove/3,
 	 t_matchstate/0,
 	 t_matchstate/2,
 	 t_matchstate_present/1,
@@ -204,6 +205,7 @@
 	 t_unopaque/1, t_unopaque/2,
 	 t_var/1,
 	 t_var_name/1,
+         t_widen_to_number/1,
 	 %% t_assign_variables_to_subtype/2,
 	 type_is_defined/4,
 	 record_field_diffs_to_string/2,
@@ -216,18 +218,7 @@
 	 cache__new/0
 	]).
 
-%%-define(DO_ERL_TYPES_TEST, true).
--compile({no_auto_import,[min/2,max/2]}).
-
--ifdef(DO_ERL_TYPES_TEST).
--export([test/0]).
--else.
--define(NO_UNUSED, true).
--endif.
-
--ifndef(NO_UNUSED).
--export([t_is_identifier/1]).
--endif.
+-compile({no_auto_import,[min/2,max/2,map_get/2]}).
 
 -export_type([erl_type/0, opaques/0, type_table/0,
               var_table/0, cache/0]).
@@ -1190,12 +1181,10 @@ is_fun(_) -> false.
 t_identifier() ->
   ?identifier(?any).
 
--ifdef(DO_ERL_TYPES_TEST).
--spec t_is_identifier(erl_type()) -> erl_type().
+-spec t_is_identifier(erl_type()) -> boolean().
 
 t_is_identifier(?identifier(_)) -> true;
 t_is_identifier(_) -> false.
--endif.
 
 %%------------------------------------
 
@@ -1366,7 +1355,6 @@ is_integer1(_) -> false.
 t_byte() ->
   ?byte.
 
--ifdef(DO_ERL_TYPES_TEST).
 -spec t_is_byte(erl_type()) -> boolean().
 
 t_is_byte(?int_range(neg_inf, _)) -> false;
@@ -1376,7 +1364,6 @@ t_is_byte(?int_range(From, To))
 t_is_byte(?int_set(Set)) -> 
   (set_min(Set) >= 0) andalso (set_max(Set) =< ?MAX_BYTE);
 t_is_byte(_) -> false.
--endif.
 
 %%------------------------------------
 
@@ -1607,6 +1594,50 @@ lift_list_to_pos_empty(Type, Opaques) ->
 lift_list_to_pos_empty(?nil) -> ?nil;
 lift_list_to_pos_empty(?list(Content, Termination, _)) -> 
   ?list(Content, Termination, ?unknown_qual).
+
+-spec t_widen_to_number(erl_type()) -> erl_type().
+
+%% Widens integers and floats to t_number().
+%% Used by erl_bif_types:key_comparison_fail().
+
+t_widen_to_number(?any) -> ?any;
+t_widen_to_number(?none) -> ?none;
+t_widen_to_number(?unit) -> ?unit;
+t_widen_to_number(?atom(_Set) = T) -> T;
+t_widen_to_number(?bitstr(_Unit, _Base) = T) -> T;
+t_widen_to_number(?float) -> t_number();
+t_widen_to_number(?function(Domain, Range)) ->
+  ?function(t_widen_to_number(Domain), t_widen_to_number(Range));
+t_widen_to_number(?identifier(_Types) = T) -> T;
+t_widen_to_number(?int_range(_From, _To)) -> t_number();
+t_widen_to_number(?int_set(_Set)) -> t_number();
+t_widen_to_number(?integer(_Types)) -> t_number();
+t_widen_to_number(?list(Type, Tail, Size)) ->
+  ?list(t_widen_to_number(Type), t_widen_to_number(Tail), Size);
+t_widen_to_number(?map(Pairs, DefK, DefV)) ->
+  L = [{t_widen_to_number(K), MNess, t_widen_to_number(V)} ||
+        {K, MNess, V} <- Pairs],
+  t_map(L, t_widen_to_number(DefK), t_widen_to_number(DefV));
+t_widen_to_number(?matchstate(_P, _Slots) = T) -> T;
+t_widen_to_number(?nil) -> ?nil;
+t_widen_to_number(?number(_Set, _Tag)) -> t_number();
+t_widen_to_number(?opaque(Set)) ->
+  L = [Opaque#opaque{struct = t_widen_to_number(S)} ||
+        #opaque{struct = S} = Opaque <- set_to_list(Set)],
+  ?opaque(ordsets:from_list(L));
+t_widen_to_number(?product(Types)) ->
+  ?product(list_widen_to_number(Types));
+t_widen_to_number(?tuple(?any, _, _) = T) -> T;
+t_widen_to_number(?tuple(Types, Arity, Tag)) ->
+  ?tuple(list_widen_to_number(Types), Arity, Tag);
+t_widen_to_number(?tuple_set(_) = Tuples) ->
+  t_sup([t_widen_to_number(T) || T <- t_tuple_subtypes(Tuples)]);
+t_widen_to_number(?union(List)) ->
+  ?union(list_widen_to_number(List));
+t_widen_to_number(?var(_Id)= T) -> T.
+
+list_widen_to_number(List) ->
+  [t_widen_to_number(E) || E <- List].
 
 %%-----------------------------------------------------------------------------
 %% Maps
@@ -1892,6 +1923,27 @@ map_put({Key, Value}, ?map(Pairs,DefK,DefV), Opaques) ->
 			    end} || {K, MNess, V} <- Pairs],
 		t_sup(DefK, Key),
 		t_sup(DefV, Value))
+      end
+  end.
+
+-spec t_map_remove(erl_type(), erl_type(), opaques()) -> erl_type().
+
+t_map_remove(Key, Map, Opaques) ->
+  do_opaque(Map, Opaques, fun(UM) -> map_remove(Key, UM) end).
+
+map_remove(_, ?none) -> ?none;
+map_remove(_, ?unit) -> ?none;
+map_remove(Key, Map) ->
+  %% ?map(lists:keydelete(Key, 1, Pairs), DefK, DefV).
+  case is_singleton_type(Key) of
+    false -> Map;
+    true ->
+      ?map(Pairs,DefK,DefV) = Map,
+      case lists:keyfind(Key, 1, Pairs) of
+        false -> Map;
+        {Key, _, _} ->
+          Pairs1 = lists:keydelete(Key, 1, Pairs),
+          t_map(Pairs1, DefK, DefV)
       end
   end.
 
@@ -3118,9 +3170,18 @@ is_compat_arg(?list(Contents1, Termination1, Size1),
 is_compat_arg(?product(Types1), ?product(Types2)) ->
   is_compat_list(Types1, Types2);
 is_compat_arg(?map(Pairs1, DefK1, DefV1), ?map(Pairs2, DefK2, DefV2)) ->
-  (is_compat_list(Pairs1, Pairs2) andalso
-   is_compat_arg(DefK1, DefK2) andalso
-   is_compat_arg(DefV1, DefV2));
+  {Ks1, _, Vs1} = lists:unzip3(Pairs1),
+  {Ks2, _, Vs2} = lists:unzip3(Pairs2),
+  Key1 = t_sup([DefK1 | Ks1]),
+  Key2 = t_sup([DefK2 | Ks2]),
+  case is_compat_arg(Key1, Key2) of
+    true ->
+      Value1 = t_sup([DefV1 | Vs1]),
+      Value2 = t_sup([DefV2 | Vs2]),
+      is_compat_arg(Value1, Value2);
+    false ->
+      false
+  end;
 is_compat_arg(?tuple(?any, ?any, ?any), ?tuple(_, _, _)) -> false;
 is_compat_arg(?tuple(_, _, _), ?tuple(?any, ?any, ?any)) -> false;
 is_compat_arg(?tuple(Elements1, Arity, _),
@@ -4169,39 +4230,6 @@ t_abstract_records(?opaque(_)=Type, RecDict) ->
   t_abstract_records(t_opaque_structure(Type), RecDict);
 t_abstract_records(T, _RecDict) -> 
   T.
-
-%% Map over types. Depth first. Used by the contract checker. ?list is
-%% not fully implemented so take care when changing the type in Termination.
-
--spec t_map(fun((erl_type()) -> erl_type()), erl_type()) -> erl_type().
-
-t_map(Fun, ?list(Contents, Termination, Size)) ->
-  Fun(?list(t_map(Fun, Contents), t_map(Fun, Termination), Size));
-t_map(Fun, ?function(Domain, Range)) ->
-  Fun(?function(t_map(Fun, Domain), t_map(Fun, Range)));
-t_map(Fun, ?product(Types)) -> 
-  Fun(?product([t_map(Fun, T) || T <- Types]));
-t_map(Fun, ?union(Types)) ->
-  Fun(t_sup([t_map(Fun, T) || T <- Types]));
-t_map(Fun, ?tuple(?any, ?any, ?any) = T) ->
-  Fun(T);
-t_map(Fun, ?tuple(Elements, _Arity, _Tag)) ->
-  Fun(t_tuple([t_map(Fun, E) || E <- Elements]));
-t_map(Fun, ?tuple_set(_) = Tuples) ->
-  Fun(t_sup([t_map(Fun, T) || T <- t_tuple_subtypes(Tuples)]));
-t_map(Fun, ?opaque(Set)) ->
-  L = [Opaque#opaque{struct = NewS} ||
-        #opaque{struct = S} = Opaque <- set_to_list(Set),
-        not t_is_none(NewS = t_map(Fun, S))],
-  Fun(case L of
-        [] -> ?none;
-        _ -> ?opaque(ordsets:from_list(L))
-      end);
-t_map(Fun, ?map(Pairs,DefK,DefV)) ->
-  %% TODO:
-  Fun(t_map(Pairs, Fun(DefK), Fun(DefV)));
-t_map(Fun, T) ->
-  Fun(T).
 
 %%=============================================================================
 %%
@@ -5332,7 +5360,15 @@ t_form_to_string({type, _L, tuple, any}) -> "tuple()";
 t_form_to_string({type, _L, tuple, Args}) ->
   "{" ++ flat_join(t_form_to_string_list(Args), ",") ++ "}";
 t_form_to_string({type, _L, union, Args}) ->
-  flat_join(t_form_to_string_list(Args), " | ");
+  flat_join(lists:map(fun(Arg) ->
+                          case Arg of
+                            {ann_type, _AL, _} ->
+                              "(" ++ t_form_to_string(Arg) ++ ")";
+                            _ ->
+                              t_form_to_string(Arg)
+                          end
+                      end, Args),
+            " | ");
 t_form_to_string({type, _L, Name, []} = T) ->
    try
      M = mod,
@@ -5693,173 +5729,3 @@ family(L) ->
 
 var_table__new() ->
   maps:new().
-
-%%=============================================================================
-%% Consistency-testing function(s) below
-%%=============================================================================
-
--ifdef(DO_ERL_TYPES_TEST).		  
-
-test() ->
-  Atom1  = t_atom(),
-  Atom2  = t_atom(foo),
-  Atom3  = t_atom(bar),
-  true   = t_is_atom(Atom2),
-
-  True   = t_atom(true),
-  False  = t_atom(false),
-  Bool   = t_boolean(),
-  true   = t_is_boolean(True),
-  true   = t_is_boolean(Bool),
-  false  = t_is_boolean(Atom1),
-
-  Binary = t_binary(),
-  true   = t_is_binary(Binary),
-
-  Bitstr = t_bitstr(),
-  true   = t_is_bitstr(Bitstr),
-  
-  Bitstr1 = t_bitstr(7, 3),
-  true   = t_is_bitstr(Bitstr1),
-  false  = t_is_binary(Bitstr1),
-
-  Bitstr2 = t_bitstr(16, 8),
-  true   = t_is_bitstr(Bitstr2),
-  true   = t_is_binary(Bitstr2),
-  
-  ?bitstr(8, 16) = t_subtract(t_bitstr(4, 12), t_bitstr(8, 12)),
-  ?bitstr(8, 16) = t_subtract(t_bitstr(4, 12), t_bitstr(8, 12)),
-
-  Int1   = t_integer(),
-  Int2   = t_integer(1),
-  Int3   = t_integer(16#ffffffff),
-  true   = t_is_integer(Int2),
-  true   = t_is_byte(Int2),
-  false  = t_is_byte(Int3),
-  false  = t_is_byte(t_from_range(-1, 1)),
-  true   = t_is_byte(t_from_range(1, ?MAX_BYTE)),
-  
-  Tuple1 = t_tuple(),
-  Tuple2 = t_tuple(3),
-  Tuple3 = t_tuple([Atom1, Int1]),
-  Tuple4 = t_tuple([Tuple1, Tuple2]),
-  Tuple5 = t_tuple([Tuple3, Tuple4]),
-  Tuple6 = t_limit(Tuple5, 2),
-  Tuple7 = t_limit(Tuple5, 3),
-  true   = t_is_tuple(Tuple1),  
-  
-  Port   = t_port(),
-  Pid    = t_pid(),
-  Ref    = t_reference(),
-  Identifier = t_identifier(),
-  false  = t_is_reference(Port),
-  true   = t_is_identifier(Port),
-
-  Function1 = t_fun(),
-  Function2 = t_fun(Pid),
-  Function3 = t_fun([], Pid),
-  Function4 = t_fun([Port, Pid], Pid),
-  Function5 = t_fun([Pid, Atom1], Int2),
-  true      = t_is_fun(Function3),  
-
-  List1 = t_list(),
-  List2 = t_list(t_boolean()),
-  List3 = t_cons(t_boolean(), List2),
-  List4 = t_cons(t_boolean(), t_atom()),
-  List5 = t_cons(t_boolean(), t_nil()),
-  List6 = t_cons_tl(List5),
-  List7 = t_sup(List4, List5),
-  List8 = t_inf(List7, t_list()),
-  List9 = t_cons(),
-  List10 = t_cons_tl(List9),
-  true  = t_is_boolean(t_cons_hd(List5)),
-  true  = t_is_list(List5),
-  false = t_is_list(List4),
-
-  Product1 = t_product([Atom1, Atom2]),
-  Product2 = t_product([Atom3, Atom1]),
-  Product3 = t_product([Atom3, Atom2]),
-
-  Union1 = t_sup(Atom2, Atom3),
-  Union2 = t_sup(Tuple2, Tuple3),
-  Union3 = t_sup(Int2, Atom3),
-  Union4 = t_sup(Port, Pid),
-  Union5 = t_sup(Union4, Int1),
-  Union6 = t_sup(Function1, Function2),
-  Union7 = t_sup(Function4, Function5),
-  Union8 = t_sup(True, False),
-  true   = t_is_boolean(Union8),
-  Union9 = t_sup(Int2, t_integer(2)),
-  true   = t_is_byte(Union9),
-  Union10 = t_sup(t_tuple([t_atom(true), ?any]), 
-		  t_tuple([t_atom(false), ?any])),
-  
-  ?any   = t_sup(Product3, Function5),
-
-  Atom3  = t_inf(Union3, Atom1),
-  Union2 = t_inf(Union2, Tuple1),
-  Int2   = t_inf(Int1, Union3),
-  Union4 = t_inf(Union4, Identifier),
-  Port   = t_inf(Union5, Port),
-  Function4 = t_inf(Union7, Function4),
-  ?none  = t_inf(Product2, Atom1),
-  Product3 = t_inf(Product1, Product2),
-  Function5 = t_inf(Union7, Function5),
-  true   = t_is_byte(t_inf(Union9, t_number())),
-  true   = t_is_char(t_inf(Union9, t_number())),
-
-  io:format("3? ~p ~n", [?int_set([3])]),
-
-  RecDict = dict:store({foo, 2}, [bar, baz], dict:new()),
-  Record1 = t_from_term({foo, [1,2], {1,2,3}}),
-  
-  Types = [
-	   Atom1,
-	   Atom2,
-	   Atom3,
-	   Binary,
-	   Int1,
-	   Int2,
-	   Tuple1,
-	   Tuple2,
-	   Tuple3,
-	   Tuple4,
-	   Tuple5,
-	   Tuple6,
-	   Tuple7,
-	   Ref,
-	   Port,
-	   Pid,
-	   Identifier,
-	   List1,
-	   List2,
-	   List3,
-	   List4,
-	   List5,
-	   List6,
-	   List7,
-	   List8,
-	   List9,
-	   List10,
-	   Function1,
-	   Function2,
-	   Function3,
-	   Function4,
-	   Function5,
-	   Product1,
-	   Product2,
-	   Record1,
-	   Union1,
-	   Union2,
-	   Union3,
-	   Union4,
-	   Union5,
-	   Union6,
-	   Union7,
-	   Union8,
-	   Union10,
-	   t_inf(Union10, t_tuple([t_atom(true), t_integer()]))
-	  ],
-  io:format("~p\n", [[t_to_string(X, RecDict) || X <- Types]]).
-       
--endif.

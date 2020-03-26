@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2001-2016. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2018. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -193,5 +193,6 @@ BIF_RETTYPE hipe_bifs_llvm_fix_pinned_regs_0(BIF_ALIST_0)
 
 BIF_RETTYPE hipe_bifs_build_stacktrace_1(BIF_ALIST_1)
 {
+    BIF_P->ftrace = NIL;
     BIF_RET(build_stacktrace(BIF_P, BIF_ARG_1));
 }

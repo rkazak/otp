@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2020. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -341,7 +341,21 @@ t_sendfile_closeduring(Config) ->
 		   -1
 	   end,
 
-    ok = sendfile_send({127,0,0,1}, Send, 0).
+    ok = sendfile_send({127,0,0,1}, Send, 0, [{active,false}]),
+    [] = flush(),
+    ok = sendfile_send({127,0,0,1}, Send, 0, [{active,true}]),
+    [] = flush(),
+    ok.
+
+flush() ->
+    lists:reverse(flush([])).
+
+flush(Acc) ->
+    receive M ->
+            flush([M | Acc])
+    after 0 ->
+            Acc
+    end.
 
 t_sendfile_crashduring(Config) ->
     Filename = proplists:get_value(big_file, Config),
@@ -409,12 +423,16 @@ sendfile_send(Send) ->
 sendfile_send(Host, Send) ->
     sendfile_send(Host, Send, []).
 sendfile_send(Host, Send, Orig) ->
+    sendfile_send(Host, Send, Orig, [{active,false}]).
+
+sendfile_send(Host, Send, Orig, SockOpts) ->
+
     SFServer = spawn_link(?MODULE, sendfile_server, [self(), Orig]),
     receive
 	{server, Port} ->
-	    {ok, Sock} = gen_tcp:connect(Host, Port,
-					       [binary,{packet,0},
-						{active,false}]),
+            Opts = [binary,{packet,0}|SockOpts],
+            io:format("connect with opts = ~p\n", [Opts]),
+	    {ok, Sock} = gen_tcp:connect(Host, Port, Opts),
 	    Data = case proplists:get_value(arity,erlang:fun_info(Send)) of
 		       1 ->
 			   Send(Sock);

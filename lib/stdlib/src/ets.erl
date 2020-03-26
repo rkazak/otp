@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -77,7 +77,9 @@
          whereis/1]).
 
 %% internal exports
--export([internal_request_all/0]).
+-export([internal_request_all/0,
+         internal_delete_all/2,
+         internal_select_delete/2]).
 
 -spec all() -> [Tab] when
       Tab :: tab().
@@ -116,7 +118,15 @@ delete(_, _) ->
 -spec delete_all_objects(Tab) -> true when
       Tab :: tab().
 
-delete_all_objects(_) ->
+delete_all_objects(Tab) ->
+    _ = ets:internal_delete_all(Tab, undefined),
+    true.
+
+-spec internal_delete_all(Tab, undefined) -> NumDeleted when
+      Tab :: tab(),
+      NumDeleted :: non_neg_integer().
+
+internal_delete_all(_, _) ->
     erlang:nif_error(undef).
 
 -spec delete_object(Tab, Object) -> true when
@@ -145,6 +155,7 @@ give_away(_, _, _) ->
       Tab :: tab(),
       InfoList :: [InfoTuple],
       InfoTuple :: {compressed, boolean()}
+                 | {decentralized_counters, boolean()}
                  | {heir, pid() | none}
                  | {id, tid()}
                  | {keypos, pos_integer()}
@@ -164,7 +175,7 @@ info(_) ->
 
 -spec info(Tab, Item) -> Value | undefined when
       Tab :: tab(),
-      Item :: compressed | fixed | heir | id | keypos | memory
+      Item :: binary | compressed | decentralized_counters | fixed | heir | id | keypos | memory
             | name | named_table | node | owner | protection
             | safe_fixed | safe_fixed_monotonic_time | size | stats | type
 	    | write_concurrency | read_concurrency,
@@ -301,6 +312,7 @@ member(_, _) ->
       Access :: access(),
       Tweaks :: {write_concurrency, boolean()}
               | {read_concurrency, boolean()}
+              | {decentralized_counters, boolean()}
               | compressed,
       Pos :: pos_integer(),
       HeirData :: term().
@@ -378,7 +390,17 @@ select_count(_, _) ->
       MatchSpec :: match_spec(),
       NumDeleted :: non_neg_integer().
 
-select_delete(_, _) ->
+select_delete(Tab, [{'_',[],[true]}]) ->
+    ets:internal_delete_all(Tab, undefined);
+select_delete(Tab, MatchSpec) ->
+    ets:internal_select_delete(Tab, MatchSpec).
+
+-spec internal_select_delete(Tab, MatchSpec) -> NumDeleted when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      NumDeleted :: non_neg_integer().
+
+internal_select_delete(_, _) ->
     erlang:nif_error(undef).
 
 -spec select_replace(Tab, MatchSpec) -> NumReplaced when

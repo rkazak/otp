@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@
 -module(kernel_SUITE).
 -include_lib("common_test/include/ct.hrl").
 
+-compile(r21).
 
 %% Test server specific exports
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
@@ -106,7 +107,7 @@ appup_tests(App,{OkVsns0,NokVsns}) ->
 create_test_vsns(App) ->
     ThisMajor = erlang:system_info(otp_release),
     FirstMajor = previous_major(ThisMajor),
-    SecondMajor = previous_major(FirstMajor),
+    SecondMajor = previous_major(previous_major(FirstMajor)),
     Ok = app_vsn(App,[ThisMajor,FirstMajor]),
     Nok0 = app_vsn(App,[SecondMajor]),
     Nok = case Ok of

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,12 +40,10 @@
 
          start_trace_client/3, 
          start_trace_port/1, 
-         %% load_event_file/2, 
          save_event_file/3,
          clear_table/1,
 
          get_global_pid/0, 
-         %% get_table_handle/1,
 	 get_table_size/1,
          change_pattern/2,
          make_key/2,
@@ -509,7 +507,7 @@ get_global_pid() ->
 %% CollectorPid = pid()
 %% RawPattern = {report_module(), extended_dbg_match_spec()}
 %% report_module() = atom() | undefined
-%% extended_dbg_match_spec()() = detail_level() | dbg_match_spec()
+%% extended_dbg_match_spec() = detail_level() | dbg_match_spec()
 %% RawPattern = detail_level()
 %% detail_level() = min | max | integer(X) when X =< 0, X >= 100
 %% TracePattern = {report_module(), dbg_match_spec_match_spec()}

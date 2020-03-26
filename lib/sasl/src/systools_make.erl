@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -32,7 +32,8 @@
 
 -export([read_application/4]).
 
--export([make_hybrid_boot/5]).
+-export([make_hybrid_boot/4]).
+-export([preloaded/0]). % Exported just for testing
 
 -import(lists, [filter/2, keysort/2, keysearch/3, map/2, reverse/1,
 		append/1, foldl/3,  member/2, foreach/2]).
@@ -44,6 +45,15 @@
 -define(XREF_SERVER, systools_make).
 
 -compile({inline,[{badarg,2}]}).
+
+-ifdef(USE_ESOCK).
+-define(ESOCK_SOCKET_MODS, [socket, socket_registry]).
+-define(ESOCK_NET_MODS,    [prim_net]).
+-else.
+-define(ESOCK_SOCKET_MODS, []).
+-define(ESOCK_NET_MODS,    []).
+-endif.
+
 
 %%-----------------------------------------------------------------
 %% Create a boot script from a release file.
@@ -68,15 +78,16 @@ make_script(RelName) ->
     badarg(RelName,[RelName]).
 
 make_script(RelName, Flags) when is_list(RelName), is_list(Flags) ->
+    ScriptName = get_script_name(RelName, Flags),
     case get_outdir(Flags) of
 	"" ->
-	    make_script(RelName, RelName, Flags);
+	    make_script(RelName, ScriptName, Flags);
 	OutDir ->
 	    %% To maintain backwards compatibility for make_script/3,
 	    %% the boot script file name is constructed here, before
 	    %% checking the validity of OutDir
 	    %% (is done in check_args_script/1)
-	    Output = filename:join(OutDir, filename:basename(RelName)),
+	    Output = filename:join(OutDir, filename:basename(ScriptName)),
 	    make_script(RelName, Output, Flags)
     end.
     
@@ -134,6 +145,12 @@ machine(Flags) ->
 	_                                        -> false
     end.
 
+get_script_name(RelName, Flags) ->
+    case get_flag(script_name,Flags) of
+	{script_name,ScriptName} when is_list(ScriptName) -> ScriptName;
+	_    -> RelName
+    end.
+
 get_path(Flags) ->
     case get_flag(path,Flags) of
 	{path,Path} when is_list(Path) -> Path;
@@ -178,94 +195,153 @@ return({error,Mod,Error},_,Flags) ->
 %% and sasl.
 %%
 %% TmpVsn = string(),
-%% Paths = {KernelPath,StdlibPath,SaslPath}
 %% Returns {ok,Boot} | {error,Reason}
 %% Boot1 = Boot2 = Boot = binary()
 %% Reason = {app_not_found,App} | {app_not_replaced,App}
-%% App = kernel | stdlib | sasl
-make_hybrid_boot(TmpVsn, Boot1, Boot2, Paths, Args) ->
-    catch do_make_hybrid_boot(TmpVsn, Boot1, Boot2, Paths, Args).
-do_make_hybrid_boot(TmpVsn, Boot1, Boot2, Paths, Args) ->
-    {script,{_RelName1,_RelVsn1},Script1} = binary_to_term(Boot1),
-    {script,{RelName2,_RelVsn2},Script2} = binary_to_term(Boot2),
-    MatchPaths = get_regexp_path(Paths),
-    NewScript1 = replace_paths(Script1,MatchPaths),
-    {Kernel,Stdlib,Sasl} = get_apps(Script2,undefined,undefined,undefined),
-    NewScript2 = replace_apps(NewScript1,Kernel,Stdlib,Sasl),
-    NewScript3 = add_apply_upgrade(NewScript2,Args),
-    Boot = term_to_binary({script,{RelName2,TmpVsn},NewScript3}),
+%% App = stdlib | sasl
+make_hybrid_boot(TmpVsn, Boot1, Boot2, Args) ->
+    catch do_make_hybrid_boot(TmpVsn, Boot1, Boot2, Args).
+do_make_hybrid_boot(TmpVsn, OldBoot, NewBoot, Args) ->
+    {script,{_RelName1,_RelVsn1},OldScript} = binary_to_term(OldBoot),
+    {script,{NewRelName,_RelVsn2},NewScript} = binary_to_term(NewBoot),
+
+    %% Everyting upto kernel_load_completed must come from the new script
+    Fun1 = fun({progress,kernel_load_completed}) -> false;
+              (_) -> true
+           end,
+    {_OldKernelLoad,OldRest1} = lists:splitwith(Fun1,OldScript),
+    {NewKernelLoad,NewRest1} = lists:splitwith(Fun1,NewScript),
+
+    Fun2 = fun({progress,modules_loaded}) -> false;
+              (_) -> true
+           end,
+    {OldModLoad,OldRest2} = lists:splitwith(Fun2,OldRest1),
+    {NewModLoad,NewRest2} = lists:splitwith(Fun2,NewRest1),
+
+    Fun3 = fun({kernelProcess,_,_}) -> false;
+              (_) -> true
+           end,
+    {OldPaths,OldRest3} = lists:splitwith(Fun3,OldRest2),
+    {NewPaths,NewRest3} = lists:splitwith(Fun3,NewRest2),
+
+    Fun4 = fun({progress,init_kernel_started}) -> false;
+              (_) -> true
+           end,
+    {_OldKernelProcs,OldApps} = lists:splitwith(Fun4,OldRest3),
+    {NewKernelProcs,NewApps} = lists:splitwith(Fun4,NewRest3),
+
+    %% Then comes all module load, which for each app consist of:
+    %% {path,[AppPath]},
+    %% {primLoad,ModuleList}
+    %% Replace kernel, stdlib and sasl here
+    MatchPaths = get_regexp_path(),
+    ModLoad = replace_module_load(OldModLoad,NewModLoad,MatchPaths),
+    Paths = replace_paths(OldPaths,NewPaths,MatchPaths),
+
+    {Stdlib,Sasl} = get_apps(NewApps,undefined,undefined),
+    Apps0 = replace_apps(OldApps,Stdlib,Sasl),
+    Apps = add_apply_upgrade(Apps0,Args),
+
+    Script = NewKernelLoad++ModLoad++Paths++NewKernelProcs++Apps,
+    Boot = term_to_binary({script,{NewRelName,TmpVsn},Script}),
     {ok,Boot}.
 
 %% For each app, compile a regexp that can be used for finding its path
-get_regexp_path({KernelPath,StdlibPath,SaslPath}) ->
+get_regexp_path() ->
     {ok,KernelMP} = re:compile("kernel-[0-9\.]+",[unicode]),
     {ok,StdlibMP} = re:compile("stdlib-[0-9\.]+",[unicode]),
     {ok,SaslMP} = re:compile("sasl-[0-9\.]+",[unicode]),
-    [{KernelMP,KernelPath},{StdlibMP,StdlibPath},{SaslMP,SaslPath}].
+    [KernelMP,StdlibMP,SaslMP].
 
-%% For each path in the script, check if it matches any of the MPs
-%% found above, and if so replace it with the correct new path.
-replace_paths([{path,Path}|Script],MatchPaths) ->
-    [{path,replace_path(Path,MatchPaths)}|replace_paths(Script,MatchPaths)];
-replace_paths([Stuff|Script],MatchPaths) ->
-    [Stuff|replace_paths(Script,MatchPaths)];
-replace_paths([],_) ->
-    [].
+replace_module_load(Old,New,[MP|MatchPaths]) ->
+    replace_module_load(do_replace_module_load(Old,New,MP),New,MatchPaths);
+replace_module_load(Script,_,[]) ->
+    Script.
 
-replace_path([Path|Paths],MatchPaths) ->
-    [do_replace_path(Path,MatchPaths)|replace_path(Paths,MatchPaths)];
-replace_path([],_) ->
-    [].
-
-do_replace_path(Path,[{MP,ReplacePath}|MatchPaths]) ->
-    case re:run(Path,MP,[{capture,none}]) of
-	nomatch -> do_replace_path(Path,MatchPaths);
-	match -> ReplacePath
+do_replace_module_load([{path,[OldAppPath]},{primLoad,OldMods}|OldRest],New,MP) ->
+    case re:run(OldAppPath,MP,[{capture,none}]) of
+        nomatch ->
+            [{path,[OldAppPath]},{primLoad,OldMods}|
+             do_replace_module_load(OldRest,New,MP)];
+        match ->
+            get_module_load(New,MP) ++ OldRest
     end;
-do_replace_path(Path,[]) ->
-    Path.
+do_replace_module_load([Other|Rest],New,MP) ->
+    [Other|do_replace_module_load(Rest,New,MP)];
+do_replace_module_load([],_,_) ->
+    [].
 
-%% Return the entries for loading the three base applications
-get_apps([{kernelProcess,application_controller,
-	   {application_controller,start,[{application,kernel,_}]}}=Kernel|
-	  Script],_,Stdlib,Sasl) ->
-    get_apps(Script,Kernel,Stdlib,Sasl);
+get_module_load([{path,[AppPath]},{primLoad,Mods}|Rest],MP) ->
+    case re:run(AppPath,MP,[{capture,none}]) of
+        nomatch ->
+            get_module_load(Rest,MP);
+        match ->
+            [{path,[AppPath]},{primLoad,Mods}]
+    end;
+get_module_load([_|Rest],MP) ->
+    get_module_load(Rest,MP);
+get_module_load([],_) ->
+    [].
+
+replace_paths([{path,OldPaths}|Old],New,MatchPaths) ->
+    {path,NewPath} = lists:keyfind(path,1,New),
+    [{path,do_replace_paths(OldPaths,NewPath,MatchPaths)}|Old];
+replace_paths([Other|Old],New,MatchPaths) ->
+    [Other|replace_paths(Old,New,MatchPaths)].
+
+do_replace_paths(Old,New,[MP|MatchPaths]) ->
+    do_replace_paths(do_replace_paths1(Old,New,MP),New,MatchPaths);
+do_replace_paths(Paths,_,[]) ->
+    Paths.
+
+do_replace_paths1([P|Ps],New,MP) ->
+    case re:run(P,MP,[{capture,none}]) of
+        nomatch ->
+            [P|do_replace_paths1(Ps,New,MP)];
+        match ->
+            get_path(New,MP) ++ Ps
+    end;
+do_replace_paths1([],_,_) ->
+    [].
+
+get_path([P|Ps],MP) ->
+    case re:run(P,MP,[{capture,none}]) of
+        nomatch ->
+            get_path(Ps,MP);
+        match ->
+            [P]
+    end;
+get_path([],_) ->
+    [].
+
+
+%% Return the entries for loading stdlib and sasl
 get_apps([{apply,{application,load,[{application,stdlib,_}]}}=Stdlib|Script],
-	 Kernel,_,Sasl) ->
-    get_apps(Script,Kernel,Stdlib,Sasl);
+	 _,Sasl) ->
+    get_apps(Script,Stdlib,Sasl);
 get_apps([{apply,{application,load,[{application,sasl,_}]}}=Sasl|_Script],
-	 Kernel,Stdlib,_) ->
-    {Kernel,Stdlib,Sasl};
-get_apps([_|Script],Kernel,Stdlib,Sasl) ->
-    get_apps(Script,Kernel,Stdlib,Sasl);
-get_apps([],undefined,_,_) ->
-    throw({error,{app_not_found,kernel}});
-get_apps([],_,undefined,_) ->
+	 Stdlib,_) ->
+    {Stdlib,Sasl};
+get_apps([_|Script],Stdlib,Sasl) ->
+    get_apps(Script,Stdlib,Sasl);
+get_apps([],undefined,_) ->
     throw({error,{app_not_found,stdlib}});
-get_apps([],_,_,undefined) ->
+get_apps([],_,undefined) ->
     throw({error,{app_not_found,sasl}}).
 
-
-%% Replace the entries for loading the base applications
-replace_apps([{kernelProcess,application_controller,
-	       {application_controller,start,[{application,kernel,_}]}}|
-	      Script],Kernel,Stdlib,Sasl) ->
-    [Kernel|replace_apps(Script,undefined,Stdlib,Sasl)];
+%% Replace the entries for loading the stdlib and sasl
 replace_apps([{apply,{application,load,[{application,stdlib,_}]}}|Script],
-	     Kernel,Stdlib,Sasl) ->
-    [Stdlib|replace_apps(Script,Kernel,undefined,Sasl)];
+	     Stdlib,Sasl) ->
+    [Stdlib|replace_apps(Script,undefined,Sasl)];
 replace_apps([{apply,{application,load,[{application,sasl,_}]}}|Script],
-	     _Kernel,_Stdlib,Sasl) ->
+	     _Stdlib,Sasl) ->
     [Sasl|Script];
-replace_apps([Stuff|Script],Kernel,Stdlib,Sasl) ->
-    [Stuff|replace_apps(Script,Kernel,Stdlib,Sasl)];
-replace_apps([],undefined,undefined,_) ->
+replace_apps([Stuff|Script],Stdlib,Sasl) ->
+    [Stuff|replace_apps(Script,Stdlib,Sasl)];
+replace_apps([],undefined,_) ->
     throw({error,{app_not_replaced,sasl}});
-replace_apps([],undefined,_,_) ->
-    throw({error,{app_not_replaced,stdlib}});
-replace_apps([],_,_,_) ->
-    throw({error,{app_not_replaced,kernel}}).
-
+replace_apps([],_,_) ->
+    throw({error,{app_not_replaced,stdlib}}).
 
 %% Finally add an apply of release_handler:new_emulator_upgrade - which will
 %% complete the execution of the upgrade script (relup).
@@ -274,8 +350,6 @@ add_apply_upgrade(Script,Args) ->
     lists:reverse([{progress,started},
 		   {apply,{release_handler,new_emulator_upgrade,Args}} |
 		   RevScript]).
-
-
 
 %%-----------------------------------------------------------------
 %% Create a release package from a release file.
@@ -1489,6 +1563,12 @@ mandatory_modules() ->
      gen_server,
      heart,
      kernel,
+     logger,
+     logger_filters,
+     logger_server,
+     logger_backend,
+     logger_config,
+     logger_simple_h,
      lists,
      proc_lib,
      supervisor
@@ -1499,11 +1579,11 @@ mandatory_modules() ->
 
 preloaded() ->
     %% Sorted
-    [erl_prim_loader,erl_tracer,erlang,
+    [atomics,counters,erl_init,erl_prim_loader,erl_tracer,erlang,
      erts_code_purger,erts_dirty_process_signal_handler,
      erts_internal,erts_literal_area_collector,
-     init,otp_ring0,prim_buffer,prim_eval,prim_file,
-     prim_inet,prim_zip,zlib].
+     init,persistent_term,prim_buffer,prim_eval,prim_file,
+     prim_inet] ++ ?ESOCK_NET_MODS ++ [prim_zip] ++ ?ESOCK_SOCKET_MODS ++ [zlib].
 
 %%______________________________________________________________________
 %% Kernel processes; processes that are specially treated by the init
@@ -1513,7 +1593,7 @@ preloaded() ->
 
 kernel_processes() ->
     [{heart, heart, start, []},
-     {error_logger, error_logger, start_link, []},
+     {logger, logger_server, start_link, []},
      {application_controller, application_controller, start,
       fun(Appls) ->
               [{_,App}] = filter(fun({{kernel,_},_App}) -> true;
@@ -1596,8 +1676,17 @@ mk_tar(Tar, RelName, Release, Appls, Flags, Path1) ->
     add_applications(Appls, Tar, Variables, Flags, false),
     add_variable_tars(Variables, Appls, Tar, Flags),
     add_system_files(Tar, RelName, Release, Path1),
-    add_erts_bin(Tar, Release, Flags).
-    
+    add_erts_bin(Tar, Release, Flags),
+    add_additional_files(Tar, Flags).
+
+add_additional_files(Tar, Flags) ->
+    case get_flag(extra_files, Flags) of
+        {extra_files, ToAdd} ->
+            [add_to_tar(Tar, From, To) || {From, To} <- ToAdd];
+        _ ->
+            ok
+    end.
+
 add_applications(Appls, Tar, Variables, Flags, Var) ->
     Res = foldl(fun({{Name,Vsn},App}, Errs) ->
 		  case catch add_appl(to_list(Name), Vsn, App,
@@ -1694,11 +1783,16 @@ add_system_files(Tar, RelName, Release, Path1) ->
 		   [RelDir, "."|Path1]
 	   end,
 
-    case lookup_file(RelName0 ++ ".boot", Path) of
-	false ->
-	    throw({error, {tar_error,{add, RelName0++".boot",enoent}}});
-	Boot ->
-	    add_to_tar(Tar, Boot, filename:join(RelVsnDir, "start.boot"))
+    case lookup_file("start.boot", Path) of
+        false ->
+            case lookup_file(RelName0 ++ ".boot", Path) of
+                false ->
+                    throw({error, {tar_error, {add, boot, RelName, enoent}}});
+                Boot ->
+                    add_to_tar(Tar, Boot, filename:join(RelVsnDir, "start.boot"))
+            end;
+        Boot ->
+            add_to_tar(Tar, Boot, filename:join(RelVsnDir, "start.boot"))
     end,
 
     case lookup_file("relup", Path) of
@@ -2116,6 +2210,9 @@ cas([no_module_tests | Args], X) ->
     cas(Args, X);
 cas([no_dot_erlang | Args], X) ->
     cas(Args, X);
+%% set the name of the script and boot file to create
+cas([{script_name, Name} | Args], X) when is_list(Name) ->
+    cas(Args, X);
 
 %%% ERROR --------------------------------------------------------------
 cas([Y | Args], X) ->
@@ -2196,6 +2293,9 @@ cat([no_warn_sasl | Args], X) ->
 %%% no_module_tests (kept for backwards compatibility, but ignored) ----
 cat([no_module_tests | Args], X) ->
     cat(Args, X);
+cat([{extra_files, ExtraFiles} | Args], X) when is_list(ExtraFiles) ->
+    cat(Args, X);
+
 %%% ERROR --------------------------------------------------------------
 cat([Y | Args], X) ->
     cat(Args, X++[Y]).
@@ -2350,6 +2450,9 @@ form_reading(W) ->
 form_tar_err({open, File, Error}) ->
     io_lib:format("Cannot open tar file ~ts - ~ts~n",
 		  [File, erl_tar:format_error(Error)]);
+form_tar_err({add, boot, RelName, enoent}) ->
+    io_lib:format("Cannot find file start.boot or ~ts to add to tar file - ~ts~n",
+		  [RelName, erl_tar:format_error(enoent)]);
 form_tar_err({add, File, Error}) ->
     io_lib:format("Cannot add file ~ts to tar file - ~ts~n",
 		  [File, erl_tar:format_error(Error)]).

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2005-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2018. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,10 +27,19 @@
 
 key_value(KeyValueStr) ->
     case lists:splitwith(fun($:) -> false; (_) -> true end, KeyValueStr) of
-	{Key, [$: | Value]} ->
-	    {http_util:to_lower(string:strip(Key)),  string:strip(Value)};
+	{Key, [$: | Value]} when Key =/= [] ->
+            %% RFC 7230 - 3.2.4 ... No whitespace is allowed between the header field-name and colon. 
+            case string:strip(Key, right) of
+                Key ->
+                    {http_util:to_lower(string:strip(Key, left)),  string:strip(Value)};
+                 _ ->
+                    %% Ignore invalid header
+                    undefined
+            end;
 	{_, []} -> 
-	    undefined
+	    undefined;
+        _ ->
+            undefined 
     end.
 %%-------------------------------------------------------------------------
 %% headers(HeaderList, #http_request_h{}) -> #http_request_h{}

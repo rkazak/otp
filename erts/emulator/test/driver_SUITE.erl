@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2020. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -81,6 +81,7 @@
          thr_msg_blast/1,
          consume_timeslice/1,
          env/1,
+         poll_pipe/1,
          z_test/1]).
 
 -export([bin_prefix/2]).
@@ -119,29 +120,6 @@
 
 -define(heap_binary_size, 64).
 
-init_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
-    CIOD = rpc(Config,
-               fun() ->
-                       case catch erts_debug:get_internal_state(available_internal_state) of
-                           true -> ok;
-                           _ -> erts_debug:set_internal_state(available_internal_state, true)
-                       end,
-                       erts_debug:get_internal_state(check_io_debug)
-               end),
-    erlang:display({init_per_testcase, Case}),
-    0 = element(1, CIOD),
-    [{testcase, Case}|Config].
-
-end_per_testcase(Case, Config) ->
-    erlang:display({end_per_testcase, Case}),
-    CIOD = rpc(Config,
-               fun() ->
-                       get_stable_check_io_info(),
-                       erts_debug:get_internal_state(check_io_debug)
-               end),
-    0 = element(1, CIOD),
-    ok.
-
 suite() ->
     [{ct_hooks,[ts_install_cth]},
      {timetrap, {minutes, 1}}].
@@ -168,6 +146,7 @@ all() -> %% Keep a_test first and z_test last...
      thr_msg_blast,
      consume_timeslice,
      env,
+     poll_pipe,
      z_test].
 
 groups() -> 
@@ -216,6 +195,48 @@ end_per_group(_GroupName, Config) ->
             stop_node(Node)
     end,
     Config.
+
+init_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
+    CIOD = rpc(Config,
+               fun() ->
+                       case catch erts_debug:get_internal_state(available_internal_state) of
+                           true -> ok;
+                           _ -> erts_debug:set_internal_state(available_internal_state, true)
+                       end,
+                       erts_debug:get_internal_state(check_io_debug)
+               end),
+    erlang:display({init_per_testcase, Case}),
+    0 = element(1, CIOD),
+    [{testcase, Case}|Config].
+
+end_per_testcase(Case, Config) ->
+    erlang:display({end_per_testcase, Case}),
+    try rpc(Config, fun() ->
+                            get_stable_check_io_info(),
+                            erts_debug:get_internal_state(check_io_debug)
+                    end) of
+        CIOD ->
+            0 = element(1, CIOD)
+    catch _E:_R:_ST ->
+            %% Logs some info about the system
+            ct_os_cmd("epmd -names"),
+            ct_os_cmd("ps aux"),
+            %% Restart the node
+            case proplists:get_value(node, Config) of
+                undefined ->
+                    ok;
+                Node ->
+                    timer:sleep(1000), %% Give the node time to die
+                    [NodeName, _] = string:lexemes(atom_to_list(Node),"@"),
+                    {ok, Node} = start_node_final(
+                                   list_to_atom(NodeName),
+                                   proplists:get_value(node_args, Config))
+            end
+    end,
+    ok.
+
+ct_os_cmd(Cmd) ->
+    ct:log("~s: ~s",[Cmd,os:cmd(Cmd)]).
 
 %% Test sending bad types to port with an outputv-capable driver.
 outputv_errors(Config) when is_list(Config) ->
@@ -996,7 +1017,9 @@ chkio_test({erts_poll_info, Before},
             During = get_check_io_total(erlang:system_info(check_io)),
             erlang:display(During),
 
-            0 = element(1, erts_debug:get_internal_state(check_io_debug)),
+            [0 = element(1, erts_debug:get_internal_state(check_io_debug)) ||
+                %% The pollset is not stable when running the fallback testcase
+                Test /= ?CHKIO_USE_FALLBACK_POLLSET],
             io:format("During test: ~p~n", [During]),
             chk_chkio_port(Port),
             case erlang:port_control(Port, ?CHKIO_STOP, "") of
@@ -1067,14 +1090,19 @@ get_stable_check_io_info(N) ->
 get_check_io_total(ChkIo) ->
     ct:log("ChkIo = ~p~n",[ChkIo]),
     {Fallback, Rest} = get_fallback(ChkIo),
+    OnlyPollThreads = [PS || PS <- Rest, not is_scheduler_pollset(PS)],
     add_fallback_infos(Fallback,
-      lists:foldl(fun(Pollset, Acc) ->
-                          lists:zipwith(fun(A, B) ->
-                                                add_pollset_infos(A,B)
-                                        end,
-                                        Pollset, Acc)
-                  end,
-                  hd(Rest), tl(Rest))).
+      lists:foldl(
+        fun(Pollset, Acc) ->
+                lists:zipwith(fun(A, B) ->
+                                      add_pollset_infos(A,B)
+                              end,
+                              Pollset, Acc)
+        end,
+        hd(OnlyPollThreads), tl(OnlyPollThreads))).
+
+is_scheduler_pollset(Pollset) ->
+    proplists:get_value(poll_threads, Pollset) == 0.
 
 add_pollset_infos({Tag, A}=TA , {Tag, B}=TB) ->
     case tag_type(Tag) of
@@ -1752,7 +1780,7 @@ smp_select0(Config) ->
     ProcFun = fun()-> io:format("Worker ~p starting\n",[self()]),	
                       Port = open_port({spawn, DrvName}, []),
                       smp_select_loop(Port, 100000),
-                      sleep(1000), % wait for driver to handle pending events
+                      smp_select_done(Port),
                       true = erlang:port_close(Port),
                       Master ! {ok,self()},
                       io:format("Worker ~p finished\n",[self()])
@@ -1780,6 +1808,21 @@ smp_select_loop(Port, N) ->
             ok
     after 0 ->
               smp_select_loop(Port, N-1)
+    end.
+
+smp_select_done(Port) ->
+    case erlang:port_control(Port, ?CHKIO_SMP_SELECT, "done") of
+        "wait" ->
+            receive
+                {Port, done} ->
+                    ok
+            after 10*1000 ->
+                    %% Seems we have a lost ready_input event.
+                    %% Go ahead anyway, port will crash VM when closed.
+                    ok
+            end;
+
+        "ok" -> ok
     end.
 
 smp_select_wait([], _) ->
@@ -2620,7 +2663,6 @@ start_node(Config) when is_list(Config) ->
 start_node(Name) ->
     start_node(Name, "").
 start_node(NodeName, Args) ->
-    Pa = filename:dirname(code:which(?MODULE)),
     Name = list_to_atom(atom_to_list(?MODULE)
                         ++ "-"
                         ++ atom_to_list(NodeName)
@@ -2628,7 +2670,17 @@ start_node(NodeName, Args) ->
                         ++ integer_to_list(erlang:system_time(second))
                         ++ "-"
                         ++ integer_to_list(erlang:unique_integer([positive]))),
-    test_server:start_node(Name, slave, [{args, Args ++ " -pa "++Pa}]).
+    start_node_final(Name, Args).
+start_node_final(Name, Args) ->
+    {ok, Pwd} = file:get_cwd(),
+    FinalArgs = [Args, " -pa ", filename:dirname(code:which(?MODULE))],
+    {ok, Node} = test_server:start_node(Name, slave, [{args, FinalArgs}]),
+    LogPath = Pwd ++ "/error_log." ++ atom_to_list(Name),
+    ct:pal("Logging to: ~s", [LogPath]),
+    rpc:call(Node, logger, add_handler, [file_handler, logger_std_h,
+                                         #{formatter => {logger_formatter,#{ single_line => false }},
+                                           config => #{file => LogPath }}]),
+    {ok, Node}.
 
 stop_node(Node) ->
     test_server:stop_node(Node).
@@ -2643,24 +2695,7 @@ wait_deallocations() ->
 
 driver_alloc_size() ->
     wait_deallocations(),
-    case erlang:system_info({allocator_sizes, driver_alloc}) of
-        false ->
-            undefined;
-        MemInfo ->
-            CS = lists:foldl(
-                   fun ({instance, _, L}, Acc) ->
-                           {value,{_,MBCS}} = lists:keysearch(mbcs, 1, L),
-                           {value,{_,SBCS}} = lists:keysearch(sbcs, 1, L),
-                           [MBCS,SBCS | Acc]
-                   end,
-                   [],
-                   MemInfo),
-            lists:foldl(
-              fun(L, Sz0) ->
-                      {value,{_,Sz,_,_}} = lists:keysearch(blocks_size, 1, L),
-                      Sz0+Sz
-              end, 0, CS)
-    end.
+    erts_debug:alloc_blocks_size(driver_alloc).
 
 rpc(Config, Fun) ->
     case proplists:get_value(node, Config) of
@@ -2692,4 +2727,26 @@ rpc(Config, Fun) ->
                 Other ->
                     ct:fail(Other)
             end
+    end.
+
+poll_pipe(Config) when is_list(Config) ->
+    %% ERL-647; we wouldn't see any events on EOF when polling a pipe using
+    %% kqueue(2).
+    case os:type() of
+        {unix, _} ->
+            Command = "erl -noshell -eval "
+                      "'\"DATA\n\" = io:get_line(\"\"),"
+                      "eof = io:get_line(\"\"),"
+                      "halt()' <<< 'DATA'",
+            Ref = make_ref(),
+            Self = self(),
+            Pid = spawn(fun() -> os:cmd(Command), Self ! Ref end),
+            receive
+                Ref -> ok
+            after 5000 ->
+                exit(Pid, kill),
+                ct:fail("Stuck reading from stdin.")
+            end;
+        _ ->
+            {skipped, "Unix-only test"}
     end.

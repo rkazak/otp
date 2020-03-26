@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1997-2018. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2020. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -181,7 +181,7 @@ erts_cleanup_offheap(ErlOffHeap *offheap)
 	    break;
 	default:
 	    ASSERT(is_external_header(u.hdr->thing_word));
-	    erts_deref_node_entry(u.ext->node);
+	    erts_deref_node_entry(u.ext->node, make_boxed(u.ep));
 	    break;
 	}
     }
@@ -201,34 +201,44 @@ free_message_buffer(ErlHeapFragment* bp)
     }while (bp != NULL);
 }
 
+static void
+erts_cleanup_message(ErtsMessage *mp)
+{
+    ErlHeapFragment *bp;
+    if (ERTS_SIG_IS_EXTERNAL_MSG(mp) || ERTS_SIG_IS_NON_MSG(mp)) {
+        ErtsDistExternal *edep = erts_proc_sig_get_external(mp);
+        if (edep) {
+            erts_free_dist_ext_copy(edep);
+            if (mp->data.heap_frag == &mp->hfrag) {
+                ASSERT(ERTS_SIG_IS_EXTERNAL_MSG(mp));
+                mp->data.heap_frag = ERTS_MSG_COMBINED_HFRAG;
+            }
+        }
+    }
+
+    if (ERTS_SIG_IS_MSG(mp) && mp->data.attached != ERTS_MSG_COMBINED_HFRAG) {
+        bp = mp->data.heap_frag;
+    } else {
+        /* All non msg signals are combined HFRAG messages,
+           but we overwrite the mp->data field with the
+           nm_signal queue ptr so have to fix that here
+           before freeing it. */
+        mp->data.attached = ERTS_MSG_COMBINED_HFRAG;
+        bp = mp->hfrag.next;
+        erts_cleanup_offheap(&mp->hfrag.off_heap);
+    }
+
+    if (bp)
+        free_message_buffer(bp);
+}
+
 void
 erts_cleanup_messages(ErtsMessage *msgp)
 {
     ErtsMessage *mp = msgp;
     while (mp) {
 	ErtsMessage *fmp;
-	ErlHeapFragment *bp;
-	if (ERTS_SIG_IS_EXTERNAL_MSG(mp)) {
-	    if (is_not_immed(ERL_MESSAGE_TOKEN(mp))) {
-		bp = (ErlHeapFragment *) mp->data.dist_ext->ext_endp;
-		erts_cleanup_offheap(&bp->off_heap);
-	    }
-	    if (mp->data.dist_ext)
-		erts_free_dist_ext_copy(mp->data.dist_ext);
-	}
-        else {
-	    if (ERTS_SIG_IS_INTERNAL_MSG(mp)
-                && mp->data.attached != ERTS_MSG_COMBINED_HFRAG) {
-		bp = mp->data.heap_frag;
-            }
-	    else {
-                mp->data.attached = ERTS_MSG_COMBINED_HFRAG;
-		bp = mp->hfrag.next;
-		erts_cleanup_offheap(&mp->hfrag.off_heap);
-	    }
-	    if (bp)
-		free_message_buffer(bp);
-	}
+	erts_cleanup_message(mp);
 	fmp = mp;
 	mp = mp->next;
 	erts_free_message(fmp);
@@ -260,21 +270,35 @@ void
 erts_queue_dist_message(Process *rcvr,
 			ErtsProcLocks rcvr_locks,
 			ErtsDistExternal *dist_ext,
+                        ErlHeapFragment *hfrag,
 			Eterm token,
                         Eterm from)
 {
     ErtsMessage* mp;
-#ifdef USE_VM_PROBES
-    Sint tok_label = 0;
-    Sint tok_lastcnt = 0;
-    Sint tok_serial = 0;
-#endif
     erts_aint_t state;
 
     ERTS_LC_ASSERT(rcvr_locks == erts_proc_lc_my_proc_locks(rcvr));
 
-    mp = erts_alloc_message(0, NULL);
-    mp->data.dist_ext = dist_ext;
+    if (hfrag) {
+        /* Fragmented message, allocate a message reference */
+        mp = erts_alloc_message(0, NULL);
+        mp->data.heap_frag = hfrag;
+    } else {
+        /* Un-fragmented message, allocate space for
+           token and dist_ext in message. */
+        Uint dist_ext_sz = erts_dist_ext_size(dist_ext) / sizeof(Eterm);
+        Uint token_sz = size_object(token);
+        Uint sz = token_sz + dist_ext_sz;
+        Eterm *hp;
+
+        mp = erts_alloc_message(sz, &hp);
+        mp->data.heap_frag = &mp->hfrag;
+        mp->hfrag.used_size = token_sz;
+
+        erts_make_dist_ext_copy(dist_ext, erts_get_dist_ext(mp->data.heap_frag));
+
+        token = copy_struct(token, token_sz, &hp, &mp->data.heap_frag->off_heap);
+    }
 
     ERL_MESSAGE_FROM(mp) = dist_ext->dep->sysname;
     ERL_MESSAGE_TERM(mp) = THE_NON_VALUE;
@@ -308,27 +332,10 @@ erts_queue_dist_message(Process *rcvr,
 	erts_cleanup_messages(mp);
     }
     else {
+	LINK_MESSAGE(rcvr, mp);
 
-#ifdef USE_VM_PROBES
-        if (DTRACE_ENABLED(message_queued)) {
-            DTRACE_CHARBUF(receiver_name, DTRACE_TERM_BUF_SIZE);
-
-            dtrace_proc_str(rcvr, receiver_name);
-            if (have_seqtrace(token)) {
-                tok_label = SEQ_TRACE_T_DTRACE_LABEL(token);
-                tok_lastcnt = signed_val(SEQ_TRACE_T_LASTCNT(token));
-                tok_serial = signed_val(SEQ_TRACE_T_SERIAL(token));
-            }
-            /*
-             * TODO: We don't know the real size of the external message here.
-             *       -1 will appear to a D script as 4294967295.
-             */
-            DTRACE6(message_queued, receiver_name, -1, rcvr->sig_qs.len + 1,
-                    tok_label, tok_lastcnt, tok_serial);
-        }
-#endif
-
-	LINK_MESSAGE(rcvr, mp, &mp->next, 1);
+        if (rcvr_locks & ERTS_PROC_LOCK_MAIN)
+            erts_proc_sig_fetch(rcvr);
 
 	if (!(rcvr_locks & ERTS_PROC_LOCK_MSGQ))
 	    erts_proc_unlock(rcvr, ERTS_PROC_LOCK_MSGQ);
@@ -338,115 +345,165 @@ erts_queue_dist_message(Process *rcvr,
 }
 
 /* Add messages last in message queue */
-static Sint
+static void
 queue_messages(Process* receiver,
-               erts_aint32_t *receiver_state,
                ErtsProcLocks receiver_locks,
                ErtsMessage* first,
                ErtsMessage** last,
                Uint len)
 {
-    Sint res;
     int locked_msgq = 0;
     erts_aint32_t state;
 
-    ASSERT(is_value(ERL_MESSAGE_TERM(first)));
-    ASSERT(is_value(ERL_MESSAGE_FROM(first)));
-    ASSERT(ERL_MESSAGE_TOKEN(first) == am_undefined ||
-           ERL_MESSAGE_TOKEN(first) == NIL ||
-           is_tuple(ERL_MESSAGE_TOKEN(first)));
-
-#ifdef ERTS_ENABLE_LOCK_CHECK
-    ERTS_LC_ASSERT(erts_proc_lc_my_proc_locks(receiver) < ERTS_PROC_LOCK_MSGQ ||
-                       receiver_locks == erts_proc_lc_my_proc_locks(receiver));
+#ifdef DEBUG
+    {
+        ErtsMessage* fmsg = ERTS_SIG_IS_MSG(first) ? first : first->next;
+        ASSERT(fmsg);
+        ASSERT(is_value(ERL_MESSAGE_TERM(fmsg)));
+        ASSERT(is_value(ERL_MESSAGE_FROM(fmsg)));
+        ASSERT(ERL_MESSAGE_TOKEN(fmsg) == am_undefined ||
+               ERL_MESSAGE_TOKEN(fmsg) == NIL ||
+               is_tuple(ERL_MESSAGE_TOKEN(fmsg)));
+    }
 #endif
 
+    ERTS_LC_ASSERT((erts_proc_lc_my_proc_locks(receiver) & ERTS_PROC_LOCK_MSGQ)
+                   == (receiver_locks & ERTS_PROC_LOCK_MSGQ));
+
     if (!(receiver_locks & ERTS_PROC_LOCK_MSGQ)) {
-	if (erts_proc_trylock(receiver, ERTS_PROC_LOCK_MSGQ) == EBUSY) {
-            ErtsProcLocks need_locks;
-
-	    if (receiver_state)
-		state = *receiver_state;
-	    else
-		state = erts_atomic32_read_nob(&receiver->state);
-	    if (state & ERTS_PSFLG_EXITING)
-		goto exiting;
-
-            need_locks = receiver_locks & ERTS_PROC_LOCKS_HIGHER_THAN(ERTS_PROC_LOCK_MSGQ);
-	    if (need_locks) {
-		erts_proc_unlock(receiver, need_locks);
-	    }
-            need_locks |= ERTS_PROC_LOCK_MSGQ;
-	    erts_proc_lock(receiver, need_locks);
-	}
+        erts_proc_lock(receiver, ERTS_PROC_LOCK_MSGQ);
 	locked_msgq = 1;
     }
-
 
     state = erts_atomic32_read_nob(&receiver->state);
 
     if (state & ERTS_PSFLG_EXITING) {
-    exiting:
 	/* Drop message if receiver is exiting or has a pending exit... */
 	if (locked_msgq)
-	    erts_proc_unlock(receiver, ERTS_PROC_LOCK_MSGQ);
+            erts_proc_unlock(receiver, ERTS_PROC_LOCK_MSGQ);
+        if (ERTS_SIG_IS_NON_MSG(first)) {
+            ErtsSchedulerData* esdp = erts_get_scheduler_data();
+            ASSERT(esdp);
+            ASSERT(!esdp->pending_signal.sig);
+            esdp->pending_signal.sig = (ErtsSignal*) first;
+            esdp->pending_signal.to = receiver->common.id;
+            first = first->next;
+        }
 	erts_cleanup_messages(first);
-	return 0;
+        return;
     }
 
-    res = receiver->sig_qs.len;
-    if (receiver_locks & ERTS_PROC_LOCK_MAIN) {
-	/*
-	 * We move 'in queue' to 'private queue' and place
-	 * message at the end of 'private queue' in order
-	 * to ensure that the 'in queue' doesn't contain
-	 * references into the heap. By ensuring this,
-	 * we don't need to include the 'in queue' in
-	 * the root set when garbage collecting.
-	 */
-	res += receiver->sig_inq.len;
+    if (last == &first->next) {
+        ASSERT(len == 1);
+        LINK_MESSAGE(receiver, first);
+    }
+    else {
+        erts_enqueue_signals(receiver, first, last, NULL, len, state);
+    }
+
+    if (receiver_locks & ERTS_PROC_LOCK_MAIN)
         erts_proc_sig_fetch(receiver);
-        LINK_MESSAGE_PRIVQ(receiver, first, last, len);
-    }
-    else
-    {
-	LINK_MESSAGE(receiver, first, last, len);
-    }
 
     if (locked_msgq) {
 	erts_proc_unlock(receiver, ERTS_PROC_LOCK_MSGQ);
     }
 
-    erts_proc_notify_new_message(receiver, receiver_locks);
-    return res;
+    if (last == &first->next)
+        erts_proc_notify_new_message(receiver, receiver_locks);
+    else
+        erts_proc_notify_new_sig(receiver, state, ERTS_PSFLG_ACTIVE);
 }
 
-static Sint
-queue_message(Process* receiver,
-              erts_aint32_t *receiver_state,
-              ErtsProcLocks receiver_locks,
-              ErtsMessage* mp, Eterm msg, Eterm from)
+static ERTS_INLINE
+ErtsMessage* prepend_pending_sig_maybe(Process* sender, Process* receiver,
+                                       ErtsMessage* mp)
 {
-    ERL_MESSAGE_TERM(mp) = msg;
-    ERL_MESSAGE_FROM(mp) = from;
-    return queue_messages(receiver, receiver_state, receiver_locks,
-                          mp, &mp->next, 1);
+    ErtsSchedulerData* esdp = sender->scheduler_data;
+    ErtsSignal* pend_sig;
+
+    if (!esdp || esdp->pending_signal.to != receiver->common.id)
+        return mp;
+   
+     pend_sig = esdp->pending_signal.sig;
+
+     ASSERT(esdp->pending_signal.dbg_from == sender);
+     esdp->pending_signal.sig = NULL;
+     esdp->pending_signal.to = THE_NON_VALUE;
+     pend_sig->common.next = mp;
+     pend_sig->common.specific.next = NULL;
+     return (ErtsMessage*) pend_sig;
 }
 
-Sint
+/**
+ *
+ * @brief Send one message from *NOT* a local process.
+ *
+ * seq_trace does not work with this type of messages
+ * to it is set to am_undefined which means that the
+ * receiving process will not remove the seq_trace token
+ * when it gets this message.
+ *
+ */
+void
 erts_queue_message(Process* receiver, ErtsProcLocks receiver_locks,
                    ErtsMessage* mp, Eterm msg, Eterm from)
 {
-    return queue_message(receiver, NULL, receiver_locks, mp, msg, from);
+    ASSERT(is_not_internal_pid(from));
+    ERL_MESSAGE_TERM(mp) = msg;
+    ERL_MESSAGE_FROM(mp) = from;
+    ERL_MESSAGE_TOKEN(mp) = am_undefined;
+    queue_messages(receiver, receiver_locks, mp, &mp->next, 1);
+}
+
+/**
+ *
+ * @brief Send one message from *NOT* a local process.
+ *
+ * But with a token!
+ */
+void
+erts_queue_message_token(Process* receiver, ErtsProcLocks receiver_locks,
+                         ErtsMessage* mp, Eterm msg, Eterm from, Eterm token)
+{
+    ASSERT(is_not_internal_pid(from));
+    ERL_MESSAGE_TERM(mp) = msg;
+    ERL_MESSAGE_FROM(mp) = from;
+    ERL_MESSAGE_TOKEN(mp) = token;
+    queue_messages(receiver, receiver_locks, mp, &mp->next, 1);
 }
 
 
-Sint
-erts_queue_messages(Process* receiver, ErtsProcLocks receiver_locks,
-                    ErtsMessage* first, ErtsMessage** last, Uint len)
+/**
+ * @brief Send one message from a local process.
+ *
+ * It is up to the caller of this function to set the
+ * correct seq_trace. The general rule of thumb is that
+ * it should be set to am_undefined if the message
+ * cannot be traced using seq_trace, if it can be
+ * traced it should be set to the trace token. It should
+ * very rarely be explicitly set to NIL!
+ */
+void
+erts_queue_proc_message(Process* sender,
+                        Process* receiver, ErtsProcLocks receiver_locks,
+                        ErtsMessage* mp, Eterm msg)
 {
-    return queue_messages(receiver, NULL, receiver_locks,
-                          first, last, len);
+    ERL_MESSAGE_TERM(mp) = msg;
+    ERL_MESSAGE_FROM(mp) = sender->common.id;
+    queue_messages(receiver, receiver_locks,
+                   prepend_pending_sig_maybe(sender, receiver, mp),
+                   &mp->next, 1);
+}
+
+
+void
+erts_queue_proc_messages(Process* sender,
+                         Process* receiver, ErtsProcLocks receiver_locks,
+                         ErtsMessage* first, ErtsMessage** last, Uint len)
+{
+    queue_messages(receiver, receiver_locks,
+                   prepend_pending_sig_maybe(sender, receiver, first),
+                   last, len);
 }
 
 void
@@ -483,25 +540,27 @@ Uint
 erts_msg_attached_data_size_aux(ErtsMessage *msg)
 {
     Sint sz;
-    ASSERT(is_non_value(ERL_MESSAGE_TERM(msg)));
-    ASSERT(msg->data.dist_ext);
-    ASSERT(msg->data.dist_ext->heap_size < 0);
+    ErtsDistExternal *edep = erts_get_dist_ext(msg->data.heap_frag);
+    ASSERT(ERTS_SIG_IS_EXTERNAL_MSG(msg));
 
-    sz = erts_decode_dist_ext_size(msg->data.dist_ext);
-    if (sz < 0) {
-	/* Bad external
-	 * We leave the message intact in this case as it's not worth the trouble
-	 * to make all callers remove it from queue. It will be detected again
-	 * and removed from message queue later anyway.
-	 */
-	return 0;
+    if (edep->heap_size < 0) {
+
+        sz = erts_decode_dist_ext_size(edep, 1, 1);
+        if (sz < 0) {
+            /* Bad external
+             * We leave the message intact in this case as it's not worth the trouble
+             * to make all callers remove it from queue. It will be detected again
+             * and removed from message queue later anyway.
+             */
+            return 0;
+        }
+
+        edep->heap_size = sz;
+    } else {
+        sz = edep->heap_size;
     }
-
-    msg->data.dist_ext->heap_size = sz;
-    if (is_not_nil(msg->m[1])) {
-	ErlHeapFragment *heap_frag;
-	heap_frag = erts_dist_ext_trailer(msg->data.dist_ext);
-	sz += heap_frag->used_size;
+    if (is_not_nil(ERL_MESSAGE_TOKEN(msg))) {
+	sz += msg->data.heap_frag->used_size;
     }
     return sz;
 }
@@ -522,9 +581,7 @@ erts_try_alloc_message_on_heap(Process *pp,
 
     if ((*psp) & ERTS_PSFLGS_VOLATILE_HEAP)
 	goto in_message_fragment;
-    else if (
-	*plp & ERTS_PROC_LOCK_MAIN
-	) {
+    else if (*plp & ERTS_PROC_LOCK_MAIN) {
     try_on_heap:
 	if (((*psp) & ERTS_PSFLGS_VOLATILE_HEAP)
 	    || (pp->flags & F_DISABLE_GC)
@@ -583,18 +640,16 @@ erts_try_alloc_message_on_heap(Process *pp,
  * Send a local message when sender & receiver processes are known.
  */
 
-Sint
+void
 erts_send_message(Process* sender,
 		  Process* receiver,
 		  ErtsProcLocks *receiver_locks,
-		  Eterm message,
-		  unsigned flags)
+		  Eterm message)
 {
     Uint msize;
     ErtsMessage* mp;
     ErlOffHeap *ohp;
     Eterm token = NIL;
-    Sint res = 0;
 #ifdef USE_VM_PROBES
     DTRACE_CHARBUF(sender_name, 64);
     DTRACE_CHARBUF(receiver_name, 64);
@@ -623,7 +678,7 @@ erts_send_message(Process* sender,
 
     receiver_state = erts_atomic32_read_nob(&receiver->state);
 
-    if (SEQ_TRACE_TOKEN(sender) != NIL && !(flags & ERTS_SND_FLG_NO_SEQ_TRACE)) {
+    if (SEQ_TRACE_TOKEN(sender) != NIL) {
         Eterm* hp;
 	Eterm stoken = SEQ_TRACE_TOKEN(sender);
 	Uint seq_trace_size = 0;
@@ -637,7 +692,7 @@ erts_send_message(Process* sender,
          * Make sure we don't use the heap between those instances.
          */
         if (have_seqtrace(stoken)) {
-	    seq_trace_update_send(sender);
+	    seq_trace_update_serial(sender);
 	    seq_trace_output(stoken, message, SEQ_TRACE_SEND,
 			     receiver->common.id, sender);
 
@@ -737,13 +792,15 @@ erts_send_message(Process* sender,
 #ifdef USE_VM_PROBES
     ERL_MESSAGE_DT_UTAG(mp) = utag;
 #endif
-    res = queue_message(receiver,
-			&receiver_state,
-			*receiver_locks,
-			mp, message,
-                        sender->common.id);
 
-    return res;
+    erts_queue_proc_message(sender, receiver, *receiver_locks, mp, message);
+
+    if (msize > ERTS_MSG_COPY_WORDS_PER_REDUCTION) {
+        Uint reds = msize / ERTS_MSG_COPY_WORDS_PER_REDUCTION;
+        if (reds > CONTEXT_REDS)
+            reds = CONTEXT_REDS;
+        BUMP_REDS(sender, (int) reds);
+    }
 }
 
 
@@ -870,11 +927,11 @@ erts_move_messages_off_heap(Process *c_p)
      * it...
      */
 
-    reds += c_p->sig_qs.len / 10;
+    reds += erts_proc_sig_privqs_len(c_p) / 10;
 
     ASSERT(erts_atomic32_read_nob(&c_p->state)
 	   & ERTS_PSFLG_OFF_HEAP_MSGQ);
-    ASSERT(c_p->flags & F_OFF_HEAP_MSGQ_CHNG);
+    ASSERT(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG);
 
     for (i = 0; i < sizeof(msgq)/sizeof(msgq[0]); i++) {
         ErtsMessage *mp;
@@ -944,7 +1001,7 @@ erts_complete_off_heap_message_queue_change(Process *c_p)
     int reds = 1;
 
     ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN == erts_proc_lc_my_proc_locks(c_p));
-    ASSERT(c_p->flags & F_OFF_HEAP_MSGQ_CHNG);
+    ASSERT(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG);
     ASSERT(erts_atomic32_read_nob(&c_p->state) & ERTS_PSFLG_OFF_HEAP_MSGQ);
 
     /*
@@ -956,7 +1013,7 @@ erts_complete_off_heap_message_queue_change(Process *c_p)
      * consistent with that.
      */
 
-    if (!(c_p->flags & F_OFF_HEAP_MSGQ))
+    if (!(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ))
 	erts_atomic32_read_band_nob(&c_p->state,
 					~ERTS_PSFLG_OFF_HEAP_MSGQ);
     else {
@@ -966,7 +1023,7 @@ erts_complete_off_heap_message_queue_change(Process *c_p)
 	erts_proc_unlock(c_p, ERTS_PROC_LOCK_MSGQ);
 	reds += erts_move_messages_off_heap(c_p);
     }
-    c_p->flags &= ~F_OFF_HEAP_MSGQ_CHNG;
+    c_p->sig_qs.flags &= ~FS_OFF_HEAP_MSGQ_CHNG;
     return reds;
 }
 
@@ -999,12 +1056,12 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
     Eterm res;
 
 #ifdef DEBUG
-    if (c_p->flags & F_OFF_HEAP_MSGQ) {
+    if (c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ) {
 	ASSERT(erts_atomic32_read_nob(&c_p->state)
 	       & ERTS_PSFLG_OFF_HEAP_MSGQ);
     }
     else {
-	if (c_p->flags & F_OFF_HEAP_MSGQ_CHNG) {
+	if (c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG) {
 	    ASSERT(erts_atomic32_read_nob(&c_p->state)
 		   & ERTS_PSFLG_OFF_HEAP_MSGQ);
 	}
@@ -1015,23 +1072,23 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
     }
 #endif
 
-    switch (c_p->flags & (F_OFF_HEAP_MSGQ|F_ON_HEAP_MSGQ)) {
+    switch (c_p->sig_qs.flags & (FS_OFF_HEAP_MSGQ|FS_ON_HEAP_MSGQ)) {
 
-    case F_OFF_HEAP_MSGQ:
+    case FS_OFF_HEAP_MSGQ:
 	res = am_off_heap;
 
 	switch (new_state) {
 	case am_off_heap:
 	    break;
 	case am_on_heap:
-	    c_p->flags |= F_ON_HEAP_MSGQ;
-	    c_p->flags &= ~F_OFF_HEAP_MSGQ;
+	    c_p->sig_qs.flags |= FS_ON_HEAP_MSGQ;
+	    c_p->sig_qs.flags &= ~FS_OFF_HEAP_MSGQ;
 	    /*
 	     * We are not allowed to clear ERTS_PSFLG_OFF_HEAP_MSGQ
 	     * if a off heap change is ongoing. It will be adjusted
 	     * when the change completes...
 	     */
-	    if (!(c_p->flags & F_OFF_HEAP_MSGQ_CHNG)) {
+	    if (!(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG)) {
 		/* Safe to clear ERTS_PSFLG_OFF_HEAP_MSGQ... */
 		erts_atomic32_read_band_nob(&c_p->state,
 						~ERTS_PSFLG_OFF_HEAP_MSGQ);
@@ -1043,14 +1100,14 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
 	}
 	break;
 
-    case F_ON_HEAP_MSGQ:
+    case FS_ON_HEAP_MSGQ:
 	res = am_on_heap;
 
 	switch (new_state) {
 	case am_on_heap:
 	    break;
 	case am_off_heap:
-	    c_p->flags &= ~F_ON_HEAP_MSGQ;
+	    c_p->sig_qs.flags &= ~FS_ON_HEAP_MSGQ;
 	    goto change_to_off_heap;
 	default:
 	    res = THE_NON_VALUE; /* badarg */
@@ -1068,13 +1125,13 @@ erts_change_message_queue_management(Process *c_p, Eterm new_state)
 
 change_to_off_heap:
 
-    c_p->flags |= F_OFF_HEAP_MSGQ;
+    c_p->sig_qs.flags |= FS_OFF_HEAP_MSGQ;
 
     /*
      * We do not have to schedule a change if
      * we have an ongoing off heap change...
      */
-    if (!(c_p->flags & F_OFF_HEAP_MSGQ_CHNG)) {
+    if (!(c_p->sig_qs.flags & FS_OFF_HEAP_MSGQ_CHNG)) {
 	ErtsChangeOffHeapMessageQueue *cohmq;
 	/*
 	 * Need to set ERTS_PSFLG_OFF_HEAP_MSGQ and wait
@@ -1086,7 +1143,7 @@ change_to_off_heap:
 	 */
 	erts_atomic32_read_bor_nob(&c_p->state,
 				       ERTS_PSFLG_OFF_HEAP_MSGQ);
-	c_p->flags |= F_OFF_HEAP_MSGQ_CHNG;
+	c_p->sig_qs.flags |= FS_OFF_HEAP_MSGQ_CHNG;
 	cohmq = erts_alloc(ERTS_ALC_T_MSGQ_CHNG,
 			   sizeof(ErtsChangeOffHeapMessageQueue));
 	cohmq->pid = c_p->common.id;
@@ -1098,84 +1155,28 @@ change_to_off_heap:
     return res;
 }
 
-int
-erts_decode_dist_message(Process *proc, ErtsProcLocks proc_locks,
-			 ErtsMessage *msgp, int force_off_heap)
+void erts_factory_proc_init(ErtsHeapFactory* factory, Process* p)
 {
-    ErtsHeapFactory factory;
-    Eterm msg;
-    ErlHeapFragment *bp;
-    Sint need;
-    int decode_in_heap_frag;
+    /* This function does not use HAlloc to allocate on the heap
+       as we do not want to use INIT_HEAP_MEM on the allocated
+       heap as that completely destroys the DEBUG emulators
+       performance. */
+    ErlHeapFragment *bp = p->mbuf;
+    factory->mode     = FACTORY_HALLOC;
+    factory->p        = p;
+    factory->hp_start = HEAP_TOP(p);
+    factory->hp       = factory->hp_start;
+    factory->hp_end   = HEAP_LIMIT(p);
+    factory->off_heap = &p->off_heap;
+    factory->message  = NULL;
+    factory->off_heap_saved.first    = p->off_heap.first;
+    factory->off_heap_saved.overhead = p->off_heap.overhead;
+    factory->heap_frags_saved = bp;
+    factory->heap_frags_saved_used = bp ? bp->used_size : 0;
+    factory->heap_frags = NULL; /* not used */
+    factory->alloc_type = 0; /* not used */
 
-    decode_in_heap_frag = (force_off_heap
-			   || !(proc_locks & ERTS_PROC_LOCK_MAIN)
-			   || (proc->flags & F_OFF_HEAP_MSGQ));
-
-    if (msgp->data.dist_ext->heap_size >= 0)
-	need = msgp->data.dist_ext->heap_size;
-    else {
-	need = erts_decode_dist_ext_size(msgp->data.dist_ext);
-	if (need < 0) {
-	    /* bad msg; remove it... */
-	    if (is_not_immed(ERL_MESSAGE_TOKEN(msgp))) {
-		bp = erts_dist_ext_trailer(msgp->data.dist_ext);
-		erts_cleanup_offheap(&bp->off_heap);
-	    }
-	    erts_free_dist_ext_copy(msgp->data.dist_ext);
-	    msgp->data.dist_ext = NULL;
-	    return 0;
-	}
-
-	msgp->data.dist_ext->heap_size = need;
-    }
-
-    if (is_not_immed(ERL_MESSAGE_TOKEN(msgp))) {
-	bp = erts_dist_ext_trailer(msgp->data.dist_ext);
-	need += bp->used_size;
-    }
-
-    if (decode_in_heap_frag)
-	erts_factory_heap_frag_init(&factory, new_message_buffer(need));
-    else
-	erts_factory_proc_prealloc_init(&factory, proc, need);
-
-    ASSERT(msgp->data.dist_ext->heap_size >= 0);
-    if (is_not_immed(ERL_MESSAGE_TOKEN(msgp))) {
-	ErlHeapFragment *heap_frag;
-	heap_frag = erts_dist_ext_trailer(msgp->data.dist_ext);
-	ERL_MESSAGE_TOKEN(msgp) = copy_struct(ERL_MESSAGE_TOKEN(msgp),
-					      heap_frag->used_size,
-					      &factory.hp,
-					      factory.off_heap);
-	erts_cleanup_offheap(&heap_frag->off_heap);
-    }
-
-    msg = erts_decode_dist_ext(&factory, msgp->data.dist_ext);
-    ERL_MESSAGE_TERM(msgp) = msg;
-    erts_free_dist_ext_copy(msgp->data.dist_ext);
-    msgp->data.attached = NULL;
-
-    if (is_non_value(msg)) {
-	erts_factory_undo(&factory);
-	return 0;
-    }
-
-    erts_factory_trim_and_close(&factory, msgp->m,
-				ERL_MESSAGE_REF_ARRAY_SZ);
-
-    ASSERT(!msgp->data.heap_frag);
-
-    if (decode_in_heap_frag)
-	msgp->data.heap_frag = factory.heap_frags;
-
-    return 1;
-}
-
-void erts_factory_proc_init(ErtsHeapFactory* factory,
-			    Process* p)
-{
-    erts_factory_proc_prealloc_init(factory, p, HEAP_LIMIT(p) - HEAP_TOP(p));
+    HEAP_TOP(p) = HEAP_LIMIT(p);
 }
 
 void erts_factory_proc_prealloc_init(ErtsHeapFactory* factory,
@@ -1232,7 +1233,7 @@ erts_factory_message_create(ErtsHeapFactory* factory,
     int on_heap;
     erts_aint32_t state;
 
-    state = proc ? erts_atomic32_read_nob(&proc->state) : 0;
+    state = proc ? erts_atomic32_read_nob(&proc->state) : ERTS_PSFLG_OFF_HEAP_MSGQ;
 
     if (state & ERTS_PSFLG_OFF_HEAP_MSGQ) {
 	msgp = erts_alloc_message(sz, &hp);
@@ -1361,32 +1362,18 @@ void erts_factory_dummy_init(ErtsHeapFactory* factory)
     factory->mode = FACTORY_CLOSED;
 }
 
-static void reserve_heap(ErtsHeapFactory*, Uint need, Uint xtra);
-
-Eterm* erts_produce_heap(ErtsHeapFactory* factory, Uint need, Uint xtra)
-{
-    Eterm* res;
-
-    ASSERT((unsigned int)factory->mode > (unsigned int)FACTORY_CLOSED);
-    if (factory->hp + need > factory->hp_end) {
-	reserve_heap(factory, need, xtra);
-    }
-    res = factory->hp;
-    factory->hp += need;
-    return res;
-}
-
 Eterm* erts_reserve_heap(ErtsHeapFactory* factory, Uint need)
 {
     ASSERT((unsigned int)factory->mode > (unsigned int)FACTORY_CLOSED);
     if (factory->hp + need > factory->hp_end) {
-	reserve_heap(factory, need, 200);
+	erts_reserve_heap__(factory, need, 200);
     }
     return factory->hp;
 }
 
-static void reserve_heap(ErtsHeapFactory* factory, Uint need, Uint xtra)
+void erts_reserve_heap__(ErtsHeapFactory* factory, Uint need, Uint xtra)
 {
+    /* internal... */
     ErlHeapFragment* bp;
 
     switch (factory->mode) {
@@ -1396,7 +1383,9 @@ static void reserve_heap(ErtsHeapFactory* factory, Uint need, Uint xtra)
 	factory->hp_end = factory->hp + need;
 	return;
 
-    case FACTORY_MESSAGE:
+    case FACTORY_MESSAGE: {
+        int replace_oh;
+        int replace_msg_hfrag;
 	if (!factory->heap_frags) {
 	    ASSERT(factory->message->data.attached == ERTS_MSG_COMBINED_HFRAG);
 	    bp = &factory->message->hfrag;
@@ -1408,25 +1397,45 @@ static void reserve_heap(ErtsHeapFactory* factory, Uint need, Uint xtra)
 	    bp = factory->heap_frags;
 	}
 
+        replace_oh = 0;
+        replace_msg_hfrag = 0;
+
         if (bp) {
-	    ASSERT(factory->hp > bp->mem);
+	    ASSERT(factory->hp >= bp->mem);
 	    ASSERT(factory->hp <= factory->hp_end);
 	    ASSERT(factory->hp_end == bp->mem + bp->alloc_size);
 
 	    bp->used_size = factory->hp - bp->mem;
+            if (!bp->used_size && factory->heap_frags) {
+                factory->heap_frags = bp->next;
+                bp->next = NULL;
+                ASSERT(!bp->off_heap.first);
+                if (factory->off_heap == &bp->off_heap)
+                    replace_oh = !0;
+                if (factory->message && factory->message->data.heap_frag == bp)
+                    replace_msg_hfrag = !0;
+                free_message_buffer(bp);
+            }
         }
 	bp = (ErlHeapFragment*) ERTS_HEAP_ALLOC(factory->alloc_type,
 						ERTS_HEAP_FRAG_SIZE(need+xtra));
 	bp->next = factory->heap_frags;
 	factory->heap_frags = bp;
 	bp->alloc_size = need + xtra;
-	bp->used_size = need;
+	bp->used_size = need + xtra;
 	bp->off_heap.first = NULL;
 	bp->off_heap.overhead = 0;
-
+        if (replace_oh) {
+            factory->off_heap = &bp->off_heap;
+            factory->off_heap_saved.first = factory->off_heap->first;
+            factory->off_heap_saved.overhead = factory->off_heap->overhead;
+        }
+        if (replace_msg_hfrag)
+            factory->message->data.heap_frag = bp;
 	factory->hp     = bp->mem;
 	factory->hp_end = bp->mem + bp->alloc_size;
 	return;
+    }
 
     case FACTORY_STATIC:
     case FACTORY_CLOSED:
@@ -1457,8 +1466,8 @@ void erts_factory_close(ErtsHeapFactory* factory)
 	    else
 		factory->message->data.heap_frag = factory->heap_frags;
 
-	    /* Fall through */
-	case FACTORY_HEAP_FRAGS:
+    /* Fall through */
+    case FACTORY_HEAP_FRAGS:
 	    bp = factory->heap_frags;
 	}
 
@@ -1509,9 +1518,11 @@ void erts_factory_trim_and_close(ErtsHeapFactory* factory,
         if (bp->next == NULL) {
             Uint used_sz = factory->hp - bp->mem;
             ASSERT(used_sz <= bp->alloc_size);
-	    if (used_sz > 0)
-		bp = erts_resize_message_buffer(bp, used_sz,
-						brefs, brefs_size);
+	    if (used_sz > 0) {
+                if (used_sz != bp->alloc_size)
+                    bp = erts_resize_message_buffer(bp, used_sz,
+                                                    brefs, brefs_size);
+            }
 	    else {
 		free_message_buffer(bp);
 		bp = NULL;
@@ -1597,6 +1608,9 @@ void erts_factory_undo(ErtsHeapFactory* factory)
 	    factory->message->hfrag.next = factory->heap_frags;
 	else
 	    factory->message->data.heap_frag = factory->heap_frags;
+        /* Set the message to NIL in order for this message not to be
+           treated as a distributed message by the cleanup_messages logic */
+        factory->message->m[0] = NIL;
 	erts_cleanup_messages(factory->message);
 	break;
     case FACTORY_TMP:

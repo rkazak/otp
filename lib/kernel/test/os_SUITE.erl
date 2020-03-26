@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -227,8 +227,8 @@ find_executable(Config) when is_list(Config) ->
 	    DataDir = proplists:get_value(data_dir, Config),
 
 	    %% Smoke test.
-	    case lib:progname() of
-		erl ->
+	    case ct:get_progname() of
+		"erl" ->
 		    ErlPath = os:find_executable("erl"),
 		    true = is_list(ErlPath),
 		    true = filelib:is_regular(ErlPath);
@@ -324,14 +324,18 @@ close_stdin(Config) ->
     "-1" = os:cmd(Fds).
 
 max_size_command(_Config) ->
+    WSL = case os:getenv("WSLENV") of
+              false -> "";
+              _ -> "wsl "
+          end,
 
-    Res20 = os:cmd("cat /dev/zero", #{ max_size => 20 }),
+    Res20 = os:cmd(WSL ++ "cat /dev/zero", #{ max_size => 20 }),
     20 = length(Res20),
 
-    Res0 = os:cmd("cat /dev/zero", #{ max_size => 0 }),
+    Res0 = os:cmd(WSL ++ "cat /dev/zero", #{ max_size => 0 }),
     0 = length(Res0),
 
-    Res32768 = os:cmd("cat /dev/zero", #{ max_size => 32768 }),
+    Res32768 = os:cmd(WSL ++ "cat /dev/zero", #{ max_size => 32768 }),
     32768 = length(Res32768),
 
     ResHello = string:trim(os:cmd("echo hello", #{ max_size => 20 })),
@@ -388,7 +392,7 @@ comp(Expected, Got) ->
 	    ct:fail(failed)
     end.
 
-%% Like lib:nonl/1, but strips \r as well as \n.
+%% strips \n and \r\n from end of string
 
 strip_nl([$\r, $\n]) -> [];
 strip_nl([$\n])      -> [];

@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2004</year><year>2016</year>
+      <year>2004</year><year>2020</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -32,7 +32,7 @@
     <rev></rev>
     <file>snmpm_network_interface.xml</file>
   </header>
-  <module>snmpm_network_interface</module>
+  <module since="">snmpm_network_interface</module>
   <modulesummary>Behaviour module for the SNMP manager network interface.</modulesummary>
   <description>
     <p>This module defines the behaviour of the manager network
@@ -79,7 +79,7 @@
 
   <funcs>
     <func>
-      <name>start_link(Server, NoteStore) -> {ok, Pid} | {error, Reason}</name>
+      <name since="">start_link(Server, NoteStore) -> {ok, Pid} | {error, Reason}</name>
       <fsummary>Start-link the network interface process</fsummary>
       <type>
         <v>Server    = pid()</v>
@@ -95,7 +95,7 @@
     </func>
 
     <func>
-      <name>stop(Pid) -> void()</name>
+      <name since="">stop(Pid) -> void()</name>
       <fsummary>Stop the network interface process</fsummary>
       <type>
         <v>Pid = pid()</v>
@@ -108,7 +108,7 @@
     </func>
 
     <func>
-      <name>send_pdu(Pid, Pdu, Vsn, MsgData, Domain, Addr, ExtraInfo) -> void()</name>
+      <name since="">send_pdu(Pid, Pdu, Vsn, MsgData, Domain, Addr, ExtraInfo) -> void()</name>
       <fsummary>Request the network interface process to send this pdu</fsummary>
       <type>
         <v>Pid = pid()</v>
@@ -125,13 +125,13 @@
         <p><c>ExtraInfo</c> is some opaque data that is passed to the
           net-if process. It originates from the <c>ExtraInfo</c>
           parameter in the calls to the 
-          <seealso marker="snmpm#sync_get">synchronous get-request</seealso>, 
-          <seealso marker="snmpm#async_get">asynchronous get-request</seealso>,
-          <seealso marker="snmpm#sync_get_next">synchronous get-next-request</seealso>, 
-          <seealso marker="snmpm#async_get_next">asynchronous get-next-request</seealso>,
-          <seealso marker="snmpm#sync_set">synchronous set-request</seealso>
+          <seealso marker="snmpm#sync_get2">synchronous get-request</seealso>, 
+          <seealso marker="snmpm#async_get2">asynchronous get-request</seealso>,
+          <seealso marker="snmpm#sync_get_next2">synchronous get-next-request</seealso>, 
+          <seealso marker="snmpm#async_get_next2">asynchronous get-next-request</seealso>,
+          <seealso marker="snmpm#sync_set2">synchronous set-request</seealso>
           and 
-          <seealso marker="snmpm#async_set">asynchronous set-request</seealso>
+          <seealso marker="snmpm#async_set2">asynchronous set-request</seealso>
           functions. 
           Whether the net-if process chooses
           to use this is implementation dependent. The net-if process
@@ -142,7 +142,7 @@
     </func>
 
     <func>
-      <name>inform_response(Pid, Ref, Addr, Port) -> void()</name>
+      <name since="">inform_response(Pid, Ref, Addr, Port) -> void()</name>
       <fsummary>Send the inform-request ack</fsummary>
       <type>
         <v>Pid = pid()</v>
@@ -163,7 +163,7 @@
     </func>
 
     <func>
-      <name>note_store(Pid, NoteStore) -> void()</name>
+      <name since="">note_store(Pid, NoteStore) -> void()</name>
       <fsummary>Change the verbosity of the network interface process</fsummary>
       <type>
         <v>Pid       = pid()</v>
@@ -179,7 +179,7 @@
     </func>
 
     <func>
-      <name>info(Pid) -> [{Key, Value}]</name>
+      <name since="">info(Pid) -> [{Key, Value}]</name>
       <fsummary>Return information about the running network interface process</fsummary>
       <type>
         <v>Pid = pid()</v>
@@ -198,7 +198,7 @@
     </func>
 
     <func>
-      <name>verbosity(Pid, Verbosity) -> void()</name>
+      <name since="">verbosity(Pid, Verbosity) -> void()</name>
       <fsummary>Change the verbosity of the network interface process</fsummary>
       <type>
         <v>Pid       = pid()</v>
@@ -212,7 +212,7 @@
     </func>
 
     <func>
-      <name>get_log_type(Pid) -> {ok, LogType} | {error, Reason}</name>
+      <name since="">get_log_type(Pid) -> {ok, LogType} | {error, Reason}</name>
       <fsummary>Get the Audit Trail Log type</fsummary>
       <type>
         <v>Pid     = pid()</v>
@@ -233,7 +233,7 @@
     </func>
 
     <func>
-      <name>set_log_type(Pid, NewType) -> {ok, OldType} | {error, Reason}</name>
+      <name since="">set_log_type(Pid, NewType) -> {ok, OldType} | {error, Reason}</name>
       <fsummary>Change the Audit Trail Log type</fsummary>
       <type>
         <v>Pid     = pid()</v>

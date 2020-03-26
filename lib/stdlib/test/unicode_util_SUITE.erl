@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2017. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2020. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -126,17 +126,30 @@ verify_gc(Line0, N, Acc) ->
 
     %io:format("Line: ~s~n",[Line]),
     [Data|_Comments] = string:tokens(Line, "#"),
-    %io:format("Data: ~w~n",[string:tokens(Data, " \t")]),
+    %% io:format("Data: ~w~n",[string:tokens(Data, " \t")]),
     {Str,Res} = gc_test_data(string:tokens(Data, " \t"), [], [[]]),
-    try
-        Res = fetch(Str, fun unicode_util:gc/1),
-        Acc
-    catch _Cl:{badmatch, Other} ->
+    %% io:format("InputStr: ~w ~w~n",[Str,unicode:characters_to_binary(Str)]),
+    case verify_gc(Str, Res, N, Line) andalso
+        verify_gc(unicode:characters_to_binary(Str), Res, N, Line0) of
+        true -> Acc;
+        false -> Acc+1
+    end.
+
+verify_gc({error,_,[CP|_]}=Err, _Res, N, Line) ->
+    IsSurrogate = 16#D800 =< CP andalso CP =< 16#DFFF,
+    %% Surrogat is not valid in utf8 encoding only utf16
+    IsSurrogate orelse
+        io:format("~w: ~ts~n Error in unicode:characters_to_binary ~w~n", [N, Line, Err]),
+    IsSurrogate;
+verify_gc(Str, Res, N, Line) ->
+    try fetch(Str, fun unicode_util:gc/1) of
+        Res -> true;
+        Other ->
             io:format("Failed: ~p~nInput: ~ts~n\t=> ~w |~ts|~n",[N, Line, Str, Str]),
             io:format("Expected: ~p~n", [Res]),
             io:format("Got: ~w~n", [Other]),
-            Acc+1;
-          Cl:R:Stacktrace ->
+            false
+    catch Cl:R:Stacktrace ->
             io:format("~p: ~ts => |~tp|~n",[N, Line, Str]),
             io:format("Expected: ~p~n", [Res]),
             erlang:raise(Cl,R,Stacktrace)
@@ -415,7 +428,15 @@ mode(deep_l, Bin) -> [unicode:characters_to_list(Bin)].
 fetch(Str, F) ->
     case F(Str) of
         [] -> [];
-        [CP|R] -> [CP|fetch(R,F)]
+        [CP|R] ->
+            %% If input is a binary R should be binary
+            if is_binary(Str) == false -> ok;
+               is_binary(R); R =:= [] -> ok;
+               true ->
+                    io:format("Char: ~tc Tail:~tP~n", [CP,R,10]),
+                    exit({bug, F})
+            end,
+            [CP|fetch(R,F)]
     end.
 
 %% *Test.txt file helpers

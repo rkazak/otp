@@ -115,6 +115,7 @@
       error.</p>
 
       <section>
+	<marker id="stacktrace"></marker>
 	<title>The call-stack back trace (stacktrace)</title>
         <p>The stack back-trace (<em>stacktrace</em>) is a list of
           <c>{Module,Function,Arity,Location}</c>
@@ -237,7 +238,11 @@
       </row>
       <row>
         <cell align="left" valign="middle"><c>noproc</c></cell>
-        <cell align="left" valign="middle">Trying to link to a non-existing process.</cell>
+        <cell align="left" valign="middle">Trying to link or monitor to a non-existing process or port.</cell>
+      </row>
+      <row>
+        <cell align="left" valign="middle"><c>noconnection</c></cell>
+        <cell align="left" valign="middle">A link or monitor to a remote process was broken because a connection between the nodes could not be established or was severed.</cell>
       </row>
       <row>
         <cell align="left" valign="middle"><c>{nocatch,V}</c></cell>

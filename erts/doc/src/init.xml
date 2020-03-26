@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>1996</year><year>2016</year>
+      <year>1996</year><year>2020</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -29,7 +29,7 @@
     <rev></rev>
     <file>init.xml</file>
   </header>
-  <module>init</module>
+  <module since="">init</module>
   <modulesummary>Coordination of system startup.</modulesummary>
   <description>
     <p>This module is preloaded and contains the code for
@@ -48,9 +48,18 @@
       the system.</p>
   </description>
 
+  <datatypes>
+    <datatype>
+      <name name="mode"/>
+      <desc>
+        <p>Code loading mode.</p>
+      </desc>
+    </datatype>
+  </datatypes>
+
   <funcs>
     <func>
-      <name name="boot" arity="1"/>
+      <name name="boot" arity="1" since=""/>
       <fsummary>Start the Erlang runtime system.</fsummary>
       <desc>
         <p>Starts the Erlang runtime system. This function is called
@@ -69,7 +78,7 @@
     </func>
 
     <func>
-      <name name="get_argument" arity="1"/>
+      <name name="get_argument" arity="1" since=""/>
       <fsummary>Get the values associated with a command-line user flag.
       </fsummary>
       <desc>
@@ -101,7 +110,7 @@
           </item>
           <tag><c>home</c></tag>
           <item>
-            <p>The home directory:</p>
+            <p>The home directory (on Unix, the value of $HOME):</p>
             <pre>
 4> <input>init:get_argument(home).</input>
 {ok,[["/home/harry"]]}</pre>
@@ -112,7 +121,7 @@
     </func>
 
     <func>
-      <name name="get_arguments" arity="0"/>
+      <name name="get_arguments" arity="0" since=""/>
       <fsummary>Get all command-line user flags.</fsummary>
       <desc>
         <p>Returns all command-line flags and the system-defined flags, see
@@ -121,7 +130,7 @@
     </func>
 
     <func>
-      <name name="get_plain_arguments" arity="0"/>
+      <name name="get_plain_arguments" arity="0" since=""/>
       <fsummary>Get all non-flag command-line arguments.</fsummary>
       <desc>
         <p>Returns any plain command-line arguments as a list of strings
@@ -130,7 +139,7 @@
     </func>
 
     <func>
-      <name name="get_status" arity="0"/>
+      <name name="get_status" arity="0" since=""/>
       <fsummary>Get system status information.</fsummary>
       <type name="internal_status"/>
       <desc>
@@ -146,7 +155,7 @@
     </func>
 
     <func>
-      <name name="reboot" arity="0"/>
+      <name name="reboot" arity="0" since=""/>
       <fsummary>Take down and restart an Erlang node smoothly.</fsummary>
       <desc>
         <p>All applications are taken down smoothly, all code is
@@ -162,15 +171,27 @@
     </func>
 
     <func>
-      <name name="restart" arity="0"/>
+      <name name="restart" arity="0" since=""/>
+      <fsummary>Restart the running Erlang node.</fsummary>
+      <desc>
+        <p>The same as
+    <seealso marker="#restart/1"><c>restart([])</c></seealso>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="restart" arity="1" since="OTP 23.0"/>
       <fsummary>Restart the running Erlang node.</fsummary>
       <desc>
         <p>The system is restarted <em>inside</em> the running Erlang
           node, which means that the emulator is not restarted. All
           applications are taken down smoothly, all code is unloaded,
           and all ports are closed before the system is booted again in
-          the same way as initially started. The same <c>BootArgs</c>
-          are used again.</p>
+          the same way as initially started.</p>
+        <p>The same <c>BootArgs</c> are used when restarting the
+          system unless the <c>mode</c> option is given, allowing the
+          code loading mode to be set to either <c>embedded</c> or
+          <c>interactive</c>. All other <c>BootArgs</c> remain the same.</p>
         <p>To limit the shutdown time, the time <c>init</c> is allowed
           to spend taking down applications, command-line flag
           <c>-shutdown_time</c> is to be used.</p>
@@ -178,7 +199,7 @@
     </func>
 
     <func>
-      <name name="script_id" arity="0"/>
+      <name name="script_id" arity="0" since=""/>
       <fsummary>Get the identity of the used boot script.</fsummary>
       <desc>
         <p>Gets the identity of the boot script used to boot the system.
@@ -189,7 +210,7 @@
     </func>
 
     <func>
-      <name name="stop" arity="0"/>
+      <name name="stop" arity="0" since=""/>
       <fsummary>Take down an Erlang node smoothly.</fsummary>
       <desc>
         <p>The same as
@@ -198,7 +219,7 @@
     </func>
 
     <func>
-      <name name="stop" arity="1"/>
+      <name name="stop" arity="1" since=""/>
       <fsummary>Take down an Erlang node smoothly.</fsummary>
       <desc>
         <p>All applications are taken down smoothly, all code is

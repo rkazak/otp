@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2020. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,7 +47,11 @@
 	 eval_expr_5/1,
 	 zero_width/1,
          eep37/1,
-         eep43/1]).
+         eep43/1,
+         otp_15035/1,
+         otp_16439/1,
+         otp_14708/1,
+         otp_16545/1]).
 
 %%
 %% Define to run outside of test server
@@ -87,7 +91,7 @@ all() ->
      otp_6539, otp_6543, otp_6787, otp_6977, otp_7550,
      otp_8133, otp_10622, otp_13228, otp_14826,
      funs, try_catch, eval_expr_5, zero_width,
-     eep37, eep43].
+     eep37, eep43, otp_15035, otp_16439, otp_14708, otp_16545].
 
 groups() -> 
     [].
@@ -1155,7 +1159,17 @@ simple() ->
     {A}.
 
 simple1() ->
-    erlang:error(simple).
+    %% If the compiler could see that this function would always
+    %% throw an error exception, it would rewrite simple() like this:
+    %%
+    %%   simple() -> simple1().
+    %%
+    %% That would change the stacktrace. To prevent the compiler from
+    %% doing that optimization, we must obfuscate the code.
+    case get(a_key_that_is_not_defined) of
+        undefined -> erlang:error(simple);
+        WillNeverHappen -> WillNeverHappen
+    end.
 
 %% Simple cases, just to cover some code.
 funs(Config) when is_list(Config) ->
@@ -1604,6 +1618,131 @@ eep43(Config) when is_list(Config) ->
     error_check("#{} = 1.", {badmatch,1}),
     error_check("[]#{a=>error(bad)}.", bad),
     error_check("(#{})#{nonexisting:=value}.", {badkey,nonexisting}),
+    ok.
+
+otp_15035(Config) when is_list(Config) ->
+    check(fun() ->
+                  fun() when #{} ->
+                          a;
+                     () when #{a => b} ->
+                          b;
+                     () when #{a => b} =:= #{a => b} ->
+                          c
+                  end()
+          end,
+          "fun() when #{} ->
+                   a;
+              () when #{a => b} ->
+                   b;
+              () when #{a => b} =:= #{a => b} ->
+                   c
+           end().",
+          c),
+    check(fun() ->
+                  F = fun(M) when M#{} ->
+                              a;
+                         (M) when M#{a => b} ->
+                              b;
+                         (M) when M#{a := b} ->
+                              c;
+                         (M) when M#{a := b} =:= M#{a := b} ->
+                              d;
+                         (M) when M#{a => b} =:= M#{a => b} ->
+                              e
+                      end,
+                  {F(#{}), F(#{a => b})}
+          end,
+          "fun() ->
+                  F = fun(M) when M#{} ->
+                              a;
+                         (M) when M#{a => b} ->
+                              b;
+                         (M) when M#{a := b} ->
+                              c;
+                         (M) when M#{a := b} =:= M#{a := b} ->
+                              d;
+                         (M) when M#{a => b} =:= M#{a => b} ->
+                              e
+                      end,
+                  {F(#{}), F(#{a => b})}
+          end().",
+          {e, d}),
+    ok.
+
+otp_16439(Config) when is_list(Config) ->
+    check(fun() -> + - 5 end, "+ - 5.", -5),
+    check(fun() -> - + - 5 end, "- + - 5.", 5),
+    check(fun() -> case 7 of - - 7 -> seven end end,
+         "case 7 of - - 7 -> seven end.", seven),
+
+    {ok,Ts,_} = erl_scan:string("- #{}. "),
+    A = erl_anno:new(1),
+    {ok,[{op,A,'-',{map,A,[]}}]} = erl_parse:parse_exprs(Ts),
+
+    ok.
+
+%% Test guard expressions in keys for maps and in sizes in binary matching.
+
+otp_14708(Config) when is_list(Config) ->
+    check(fun() -> X = 42, #{{tag,X} := V} = #{{tag,X} => a}, V end,
+          "begin X = 42, #{{tag,X} := V} = #{{tag,X} => a}, V end.",
+          a),
+    check(fun() ->
+                  T = {x,y,z},
+                  Map = #{x => 99, y => 100},
+                  #{element(1, T) := V1, element(2, T) := V2} = Map,
+                  {V1, V2}
+          end,
+          "begin
+                  T = {x,y,z},
+                  Map = #{x => 99, y => 100},
+                  #{element(1, T) := V1, element(2, T) := V2} = Map,
+                  {V1, V2}
+          end.",
+          {99, 100}),
+    error_check("#{term_to_binary(42) := _} = #{}.", illegal_guard_expr),
+
+    check(fun() ->
+                  <<Sz:16,Body:(Sz-1)/binary>> = <<4:16,1,2,3>>,
+                  Body
+          end,
+          "begin
+              <<Sz:16,Body:(Sz-1)/binary>> = <<4:16,1,2,3>>,
+             Body
+          end.",
+          <<1,2,3>>),
+    check(fun() ->
+                  Sizes = #{0 => 3, 1 => 7},
+                  <<SzTag:1,Body:(map_get(SzTag, Sizes))/binary>> =
+                      <<1:1,1,2,3,4,5,6,7>>,
+                  Body
+          end,
+          "begin
+             Sizes = #{0 => 3, 1 => 7},
+             <<SzTag:1,Body:(map_get(SzTag, Sizes))/binary>> =
+                 <<1:1,1,2,3,4,5,6,7>>,
+             Body
+          end.",
+          <<1,2,3,4,5,6,7>>),
+    error_check("<<X:(process_info(self()))>> = <<>>.", illegal_bitsize),
+
+    ok.
+
+otp_16545(Config) when is_list(Config) ->
+    check(fun() -> <<$W/utf16-native>> end,
+          "<<$W/utf16-native>>.",
+          <<0,$W>>),
+    check(fun() -> <<$W/utf32-native>> end,
+          "<<$W/utf32-native>>.",
+          <<$W,0,0,0>>),
+    check(fun() -> <<10/unsigned,"fgbz":86>> end,
+          "<<10/unsigned,\"fgbz\":86>>.",
+          <<10,0,0,0,0,0,0,0,0,0,1,152,0,0,0,0,0,0,0,0,0,6,112,0,0,
+            0,0,0,0,0,0,0,24,128,0,0,0,0,0,0,0,0,0,122>>),
+    check(fun() -> <<"":16/signed>> end,
+          "<<\"\":16/signed>>.",
+          <<>>),
+    error_check("<<\"\":problem/signed>>.", badarg),
     ok.
 
 %% Check the string in different contexts: as is; in fun; from compiled code.

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2017. All Rights Reserved.
+ * Copyright Ericsson AB 2017-2018. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1078,7 +1078,7 @@ static BIF_RETTYPE iol2v_yield(iol2v_state_t *state) {
         state = boxed_state;
     }
 
-    ERTS_BIF_YIELD1(bif_export[BIF_iolist_to_iovec_1],
+    ERTS_BIF_YIELD1(&bif_trap_export[BIF_iolist_to_iovec_1],
         state->process, state->magic_reference);
 }
 

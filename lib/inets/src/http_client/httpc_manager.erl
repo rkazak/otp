@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2016. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2018. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -472,10 +472,10 @@ handle_call(which_cookies, _, #state{cookie_db = CookieDb} = State) ->
 handle_call({which_cookies, Url, Options}, _, 
 	    #state{cookie_db = CookieDb} = State) ->
     ?hcrv("which cookies", [{url, Url}, {options, Options}]),
-    case uri_parse(Url, Options) of
-	{ok, {Scheme, _, Host, Port, Path, _}} ->
+    case uri_parse(Url) of
+	{ok, {Scheme, Host, Port, Path}} ->
 	    CookieHeaders = 
-		httpc_cookie:header(CookieDb, Scheme, {Host, Port}, Path),
+		httpc_cookie:header(CookieDb, erlang:list_to_existing_atom(Scheme), {Host, Port}, Path),
 	    {reply, CookieHeaders, State};
 	{error, _} = ERROR ->
 	    {reply, ERROR, State}
@@ -750,8 +750,26 @@ handle_request(#request{settings =
     start_handler(NewRequest#request{headers = NewHeaders}, State),
     {reply, {ok, NewRequest#request.id}, State};
 
-handle_request(Request, State = #state{options = Options}) ->
+%% Simple socket options handling (ERL-441).
+%%
+%% TODO: Refactor httpc to enable sending socket options in requests
+%%       using persistent connections. This workaround opens a new
+%%       connection for each request with non-empty socket_opts.
+handle_request(Request0 = #request{socket_opts = SocketOpts},
+               State0 = #state{options = Options0})
+  when is_list(SocketOpts) andalso length(SocketOpts) > 0 ->
+    Request = handle_cookies(generate_request_id(Request0), State0),
+    Options = convert_options(SocketOpts, Options0),
+    State = State0#state{options = Options},
+    Headers =
+	(Request#request.headers)#http_request_h{connection
+						    = "close"},
+    %% Reset socket_opts to avoid setopts failure.
+    start_handler(Request#request{headers = Headers, socket_opts = []}, State),
+    %% Do not change the state
+    {reply, {ok, Request#request.id}, State0};
 
+handle_request(Request, State = #state{options = Options}) ->
     NewRequest = handle_cookies(generate_request_id(Request), State),
     SessionType = session_type(Options),
     case select_session(Request#request.method,
@@ -774,6 +792,18 @@ handle_request(Request, State = #state{options = Options}) ->
     end,
     {reply, {ok, NewRequest#request.id}, State}.
 
+
+%% Convert Request options to State options
+convert_options([], Options) ->
+    Options;
+convert_options([{ipfamily, Value}|T], Options) ->
+    convert_options(T, Options#options{ipfamily = Value});
+convert_options([{ip, Value}|T], Options) ->
+    convert_options(T, Options#options{ip = Value});
+convert_options([{port, Value}|T], Options) ->
+    convert_options(T, Options#options{port = Value});
+convert_options([Option|T], Options = #options{socket_opts = SocketOpts}) ->
+    convert_options(T, Options#options{socket_opts = SocketOpts ++ [Option]}).
 
 start_handler(#request{id   = Id, 
 		       from = From} = Request, 
@@ -833,7 +863,7 @@ select_session(Candidates, _, Max, pipeline) ->
     select_session(Candidates, Max).
 
 select_session([] = _Candidates, _Max) ->
-    ?hcrd("select session - no candicate", []),
+    ?hcrd("select session - no candidate", []),
     no_connection; 
 select_session(Candidates, Max) ->
     NewCandidates = 
@@ -918,14 +948,31 @@ make_db_name(ProfileName, Post) ->
 %%--------------------------------------------------------------------------
 %% These functions is just simple wrappers to parse specifically HTTP URIs
 %%--------------------------------------------------------------------------
+uri_parse(URI) ->
+    case uri_string:parse(uri_string:normalize(URI)) of
+        #{scheme := Scheme,
+          host := Host,
+          port := Port,
+          path := Path} ->
+            {ok, {Scheme, Host, Port, Path}};    
+        #{scheme := Scheme,
+          host := Host,
+          path := Path} ->
+            {ok, {Scheme, Host, scheme_default_port(Scheme), Path}};
+        Other ->
+            {error, maybe_error(Other)}
+    end.
 
-scheme_defaults() ->
-    [{http, 80}, {https, 443}].
+maybe_error({error, Atom, Term}) ->
+    {Atom, Term};
+maybe_error(Other) ->
+    {unexpected, Other}.
 
-uri_parse(URI, Opts) ->
-    http_uri:parse(URI, [{scheme_defaults, scheme_defaults()} | Opts]).
-
-
+scheme_default_port("http") ->
+    80;
+scheme_default_port("https") ->
+    443.
+                                
 %%--------------------------------------------------------------------------
 
 

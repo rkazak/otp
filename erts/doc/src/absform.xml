@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2001</year><year>2018</year>
+      <year>2001</year><year>2020</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -134,7 +134,7 @@
       <item>
         <p>If F is a type declaration <c>-Type Name(V_1, ..., V_k) :: T</c>,
           where <c>Type</c> is either the atom <c>type</c> or the atom
-          <c>opaque</c>, each <c>V_i</c> is a variable, and <c>T</c> is a type,
+          <c>opaque</c>, each <c>V_i</c> is a type variable, and <c>T</c> is a type,
           then Rep(F) =
           <c>{attribute,LINE,Type,{Name,Rep(T),[Rep(V_1), ...,
           Rep(V_k)]}}</c>.</p>
@@ -407,9 +407,8 @@
       </item>
       <item>
         <p>If E is a map creation <c>#{A_1, ..., A_k}</c>,
-          where each <c>A_i</c> is an association <c>E_i_1 => E_i_2</c>
-          or <c>E_i_1 := E_i_2</c>, then Rep(E) =
-          <c>{map,LINE,[Rep(A_1), ..., Rep(A_k)]}</c>.
+          where each <c>A_i</c> is an association <c>E_i_1 => E_i_2</c>,
+	  then Rep(E) = <c>{map,LINE,[Rep(A_1), ..., Rep(A_k)]}</c>.
           For Rep(A), see below.</p>
       </item>
       <item>
@@ -731,9 +730,8 @@
       </item>
       <item>
         <p>If Gt is a map creation <c>#{A_1, ..., A_k}</c>,
-          where each <c>A_i</c> is an association <c>Gt_i_1 => Gt_i_2</c>
-          or <c>Gt_i_1 := Gt_i_2</c>, then Rep(Gt) =
-          <c>{map,LINE,[Rep(A_1), ..., Rep(A_k)]}</c>.
+          where each <c>A_i</c> is an association <c>Gt_i_1 => Gt_i_2</c>,
+	  then Rep(Gt) = <c>{map,LINE,[Rep(A_1), ..., Rep(A_k)]}</c>.
           For Rep(A), see above.</p>
       </item>
       <item>
@@ -803,7 +801,8 @@
           <c>{ann_type,LINE,[Rep(A),Rep(T_0)]}</c>.</p>
       </item>
       <item>
-        <p>If T is an atom or integer literal L, then Rep(T) = Rep(L).</p>
+        <p>If T is an atom, a character, or an integer literal L,
+	  then Rep(T) = Rep(L).</p>
       </item>
       <item>
         <p>If T is a bitstring type <c>&lt;&lt;_:M,_:_*N>></c>,
@@ -812,7 +811,9 @@
       </item>
       <item>
         <p>If T is the empty list type <c>[]</c>, then Rep(T) =
-          <c>{type,Line,nil,[]}</c>.</p>
+          <c>{type,Line,nil,[]}</c>, that is, the empty list type
+          <c>[]</c> cannot be distinguished from the predefined type
+          <c>nil()</c>.</p>
       </item>
       <item>
         <p>If T is a fun type <c>fun()</c>, then Rep(T) =

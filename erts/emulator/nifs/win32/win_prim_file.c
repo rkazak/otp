@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson 2017. All Rights Reserved.
+ * Copyright Ericsson 2017-2020. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@
 
 #include "prim_file_nif.h"
 
+#include <winioctl.h>
 #include <windows.h>
 #include <strsafe.h>
 #include <wchar.h>
@@ -32,16 +33,32 @@
 
 #define FILE_SHARE_FLAGS (FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
 
-#define LP_PREFIX L"\\\\?\\"
-#define LP_PREFIX_SIZE (sizeof(LP_PREFIX) - sizeof(WCHAR))
+/* Long paths can either be in the file (?) or the device (.) namespace. UNC
+ * paths are always in the file namespace. */
+#define LP_FILE_PREFIX L"\\\\?\\"
+#define LP_DEV_PREFIX L"\\\\.\\"
+#define LP_UNC_PREFIX (LP_FILE_PREFIX L"UNC\\")
+
+#define LP_PREFIX_SIZE (sizeof(LP_FILE_PREFIX) - sizeof(WCHAR))
 #define LP_PREFIX_LENGTH (LP_PREFIX_SIZE / sizeof(WCHAR))
+
+#define LP_UNC_PREFIX_SIZE (sizeof(LP_UNC_PREFIX) - sizeof(WCHAR))
+#define LP_UNC_PREFIX_LENGTH (LP_UNC_PREFIX_SIZE / sizeof(WCHAR))
+
+#define IS_LONG_PATH(length, data) \
+    ((length) >= LP_PREFIX_LENGTH && \
+         (!sys_memcmp((data), LP_FILE_PREFIX, LP_PREFIX_SIZE) || \
+          !sys_memcmp((data), LP_DEV_PREFIX, LP_PREFIX_SIZE)))
+
+#define IS_LONG_UNC_PATH(length, data) \
+    ((length) >= LP_UNC_PREFIX_LENGTH && \
+         !sys_memcmp((data), LP_UNC_PREFIX, LP_UNC_PREFIX_SIZE))
 
 #define PATH_LENGTH(path) (path->size / sizeof(WCHAR) - 1)
 
 #define ASSERT_PATH_FORMAT(path) \
     do { \
-        ASSERT(PATH_LENGTH(path) >= 4 && \
-            !memcmp(path->data, LP_PREFIX, LP_PREFIX_SIZE)); \
+        ASSERT(IS_LONG_PATH(PATH_LENGTH(path), (path)->data)); \
         ASSERT(PATH_LENGTH(path) == wcslen((WCHAR*)path->data)); \
     } while(0)
 
@@ -105,7 +122,7 @@ static posix_errno_t get_full_path(ErlNifEnv *env, WCHAR *input, efile_path_t *r
         return ENOENT;
     }
 
-    maximum_length += LP_PREFIX_LENGTH;
+    maximum_length += MAX(LP_PREFIX_LENGTH, LP_UNC_PREFIX_LENGTH);
 
     if(!enif_alloc_binary(maximum_length * sizeof(WCHAR), result)) {
         return ENOMEM;
@@ -114,18 +131,31 @@ static posix_errno_t get_full_path(ErlNifEnv *env, WCHAR *input, efile_path_t *r
     actual_length = GetFullPathNameW(input, maximum_length, (WCHAR*)result->data, NULL);
 
     if(actual_length < maximum_length) {
-        int has_long_path_prefix;
+        int is_long_path, maybe_unc_path;
         WCHAR *path_start;
 
-        /* Make sure we have a long-path prefix; GetFullPathNameW only adds one
-         * if the path is relative. */
-        has_long_path_prefix = actual_length >= LP_PREFIX_LENGTH &&
-            !sys_memcmp(result->data, LP_PREFIX, LP_PREFIX_SIZE);
+        /* The APIs we use have varying path length limits and sometimes
+         * behave differently when given a long-path prefix, so it's simplest
+         * to always use long paths. */
 
-        if(!has_long_path_prefix) {
+        is_long_path = IS_LONG_PATH(actual_length, result->data);
+        maybe_unc_path = !sys_memcmp(result->data, L"\\\\", sizeof(WCHAR) * 2);
+
+        if(maybe_unc_path && !is_long_path) {
+            /* \\localhost\c$\gurka -> \\?\UNC\localhost\c$\gurka
+             *
+             * Note that the length is reduced by 2 as the "\\" is replaced by
+             * the UNC prefix */
+            sys_memmove(result->data + LP_UNC_PREFIX_SIZE,
+                &((WCHAR*)result->data)[2],
+                (actual_length + 1 - 2) * sizeof(WCHAR));
+            sys_memcpy(result->data, LP_UNC_PREFIX, LP_UNC_PREFIX_SIZE);
+            actual_length += LP_UNC_PREFIX_LENGTH - 2;
+        } else if(!is_long_path) {
+            /* C:\gurka -> \\?\C:\gurka */
             sys_memmove(result->data + LP_PREFIX_SIZE, result->data,
                 (actual_length + 1) * sizeof(WCHAR));
-            sys_memcpy(result->data, LP_PREFIX, LP_PREFIX_SIZE);
+            sys_memcpy(result->data, LP_FILE_PREFIX, LP_PREFIX_SIZE);
             actual_length += LP_PREFIX_LENGTH;
         }
 
@@ -199,13 +229,19 @@ static int normalize_path_result(ErlNifBinary *path) {
     ASSERT(length < path->size / sizeof(WCHAR));
 
     /* Get rid of the long-path prefix, if present. */
-    if(length >= LP_PREFIX_LENGTH) {
-        if(!sys_memcmp(path_start, LP_PREFIX, LP_PREFIX_SIZE)) {
-            length -= LP_PREFIX_LENGTH;
 
-            sys_memmove(path_start, &path_start[LP_PREFIX_LENGTH],
-                length * sizeof(WCHAR));
-        }
+    if(IS_LONG_UNC_PATH(length, path_start)) {
+        /* The first two characters (\\) are the same for both long and short
+         * UNC paths. */
+        sys_memmove(&path_start[2], &path_start[LP_UNC_PREFIX_LENGTH],
+            (length - LP_UNC_PREFIX_LENGTH) * sizeof(WCHAR));
+
+        length -= LP_UNC_PREFIX_LENGTH - 2;
+    } else if(IS_LONG_PATH(length, path_start)) {
+        length -= LP_PREFIX_LENGTH;
+
+        sys_memmove(path_start, &path_start[LP_PREFIX_LENGTH],
+            length * sizeof(WCHAR));
     }
 
     path_end = &path_start[length];
@@ -233,7 +269,18 @@ static int normalize_path_result(ErlNifBinary *path) {
     return enif_realloc_binary(path, length * sizeof(WCHAR));
 }
 
-/* @brief Checks whether all the given attributes are set on the object at the
+/** @brief Checks whether all the given attributes are set on the object at the
+ * given handle. Note that it assumes false on errors. */
+static int handle_has_file_attributes(HANDLE handle, DWORD mask) {
+    BY_HANDLE_FILE_INFORMATION native_file_info;
+    if(!GetFileInformationByHandle(handle, &native_file_info)) {
+        return 0;
+    }
+
+    return !!((native_file_info.dwFileAttributes & mask) == mask);
+}
+
+/** @brief Checks whether all the given attributes are set on the object at the
  * given path. Note that it assumes false on errors. */
 static int has_file_attributes(const efile_path_t *path, DWORD mask) {
     DWORD attributes = GetFileAttributesW((WCHAR*)path->data);
@@ -277,7 +324,7 @@ static int get_drive_number(const efile_path_t *path) {
     return -1;
 }
 
-/* @brief Checks whether two *paths* are on the same mount point; they don't
+/** @brief Checks whether two *paths* are on the same mount point; they don't
  * have to refer to existing or accessible files/directories. */
 static int has_same_mount_point(const efile_path_t *path_a, const efile_path_t *path_b) {
     WCHAR *mount_a, *mount_b;
@@ -317,49 +364,55 @@ static int has_same_mount_point(const efile_path_t *path_a, const efile_path_t *
 /* Mirrors the PathIsRootW function of the shell API, but doesn't choke on
  * paths longer than MAX_PATH. */
 static int is_path_root(const efile_path_t *path) {
-    const WCHAR *path_start, *path_end;
+    const WCHAR *path_start, *path_end, *path_iterator;
     int length;
 
     ASSERT_PATH_FORMAT(path);
 
-    path_start = (WCHAR*)path->data + LP_PREFIX_LENGTH;
-    length = PATH_LENGTH(path) - LP_PREFIX_LENGTH;
+    if(!IS_LONG_UNC_PATH(PATH_LENGTH(path), path->data)) {
+        path_start = (WCHAR*)path->data + LP_PREFIX_LENGTH;
+        length = PATH_LENGTH(path) - LP_PREFIX_LENGTH;
 
-    path_end = &path_start[length];
-
-    if(length == 1) {
         /* A single \ refers to the root of the current working directory. */
-        return IS_SLASH(path_start[0]);
-    } else if(length == 3 && iswalpha(path_start[0]) && path_start[1] == L':') {
+        if(length == 1) {
+            return IS_SLASH(path_start[0]);
+        }
+
         /* Drive letter. */
-        return IS_SLASH(path_start[2]);
-    } else if(length >= 4) {
-        /* Check whether we're a UNC root, eg. \\server, \\server\share */
-        const WCHAR *path_iterator;
-
-        if(!IS_SLASH(path_start[0]) || !IS_SLASH(path_start[1])) {
-            return 0;
+        if(length == 3 && iswalpha(path_start[0]) && path_start[1] == L':') {
+            return IS_SLASH(path_start[2]);
         }
 
-        path_iterator = path_start + 2;
-
-        /* Slide to the slash between the server and share names, if present. */
-        while(path_iterator < path_end && !IS_SLASH(*path_iterator)) {
-            path_iterator++;
-        }
-
-        /* Slide past the end of the string, stopping at the first slash we
-         * encounter. */
-        do {
-            path_iterator++;
-        }  while(path_iterator < path_end && !IS_SLASH(*path_iterator));
-
-        /* If we're past the end of the string and it didnt't end with a slash,
-         * then we're a root path. */
-        return path_iterator >= path_end && !IS_SLASH(path_start[length - 1]);
+        return 0;
     }
 
-    return 0;
+    /* Check whether we're a UNC root, eg. \\server, \\server\share */
+
+    path_start = (WCHAR*)path->data + LP_UNC_PREFIX_LENGTH;
+    length = PATH_LENGTH(path) - LP_UNC_PREFIX_LENGTH;
+
+    path_end = &path_start[length];
+    path_iterator = path_start;
+
+    /* Server name must be at least one character. */
+    if(length <= 1) {
+        return 0;
+    }
+
+    /* Slide to the slash between the server and share names, if present. */
+    while(path_iterator < path_end && !IS_SLASH(*path_iterator)) {
+        path_iterator++;
+    }
+
+    /* Slide past the end of the string, stopping at the first slash we
+     * encounter. */
+    do {
+        path_iterator++;
+    }  while(path_iterator < path_end && !IS_SLASH(*path_iterator));
+
+    /* If we're past the end of the string and it didnt't end with a slash,
+     * then we're a root path. */
+    return path_iterator >= path_end && !IS_SLASH(path_start[length - 1]);
 }
 
 posix_errno_t efile_open(const efile_path_t *path, enum efile_modes_t modes,
@@ -370,10 +423,15 @@ posix_errno_t efile_open(const efile_path_t *path, enum efile_modes_t modes,
 
     ASSERT_PATH_FORMAT(path);
 
+    attributes = 0;
     access_flags = 0;
     open_mode = 0;
 
-    if(modes & EFILE_MODE_READ && !(modes & EFILE_MODE_WRITE)) {
+    if(modes & EFILE_MODE_DIRECTORY) {
+        attributes = FILE_FLAG_BACKUP_SEMANTICS;
+        access_flags = GENERIC_READ;
+        open_mode = OPEN_EXISTING;
+    } else if(modes & EFILE_MODE_READ && !(modes & EFILE_MODE_WRITE)) {
         access_flags = GENERIC_READ;
         open_mode = OPEN_EXISTING;
     } else if(modes & EFILE_MODE_WRITE && !(modes & EFILE_MODE_READ)) {
@@ -396,9 +454,9 @@ posix_errno_t efile_open(const efile_path_t *path, enum efile_modes_t modes,
     }
 
     if(modes & EFILE_MODE_SYNC) {
-        attributes = FILE_FLAG_WRITE_THROUGH;
+        attributes |= FILE_FLAG_WRITE_THROUGH;
     } else {
-        attributes = FILE_ATTRIBUTE_NORMAL;
+        attributes |= FILE_ATTRIBUTE_NORMAL;
     }
 
     handle = CreateFileW((WCHAR*)path->data, access_flags,
@@ -406,6 +464,12 @@ posix_errno_t efile_open(const efile_path_t *path, enum efile_modes_t modes,
 
     if(handle != INVALID_HANDLE_VALUE) {
         efile_win_t *w;
+
+        /* Directory mode specified, but path is not a directory. */
+        if((modes & EFILE_MODE_DIRECTORY) && !handle_has_file_attributes(handle, FILE_ATTRIBUTE_DIRECTORY)) {
+            CloseHandle(handle);
+            return ENOTDIR;
+        }
 
         w = (efile_win_t*)enif_alloc_resource(nif_type, sizeof(efile_win_t));
         w->handle = handle;
@@ -419,7 +483,7 @@ posix_errno_t efile_open(const efile_path_t *path, enum efile_modes_t modes,
 
         /* Rewrite all failures on directories to EISDIR to match the old
          * driver. */
-        if(has_file_attributes(path, FILE_ATTRIBUTE_DIRECTORY)) {
+        if(!(modes & EFILE_MODE_DIRECTORY) && has_file_attributes(path, FILE_ATTRIBUTE_DIRECTORY)) {
             return EISDIR;
         }
 
@@ -427,18 +491,21 @@ posix_errno_t efile_open(const efile_path_t *path, enum efile_modes_t modes,
     }
 }
 
-int efile_close(efile_data_t *d) {
+int efile_close(efile_data_t *d, posix_errno_t *error) {
     efile_win_t *w = (efile_win_t*)d;
     HANDLE handle;
 
+    ASSERT(enif_thread_type() == ERL_NIF_THR_DIRTY_IO_SCHEDULER);
     ASSERT(erts_atomic32_read_nob(&d->state) == EFILE_STATE_CLOSED);
     ASSERT(w->handle != INVALID_HANDLE_VALUE);
 
     handle = w->handle;
     w->handle = INVALID_HANDLE_VALUE;
 
+    enif_release_resource(d);
+
     if(!CloseHandle(handle)) {
-        w->common.posix_errno = windows_to_posix_errno(GetLastError());
+        *error = windows_to_posix_errno(GetLastError());
         return 0;
     }
 
@@ -671,73 +738,47 @@ static int is_executable_file(const efile_path_t *path) {
     return 0;
 }
 
-posix_errno_t efile_read_info(const efile_path_t *path, int follow_links, efile_fileinfo_t *result) {
-    BY_HANDLE_FILE_INFORMATION native_file_info;
+/* Returns whether the path refers to a link-like object, e.g. a junction
+ * point, symbolic link, or mounted folder. */
+static int is_name_surrogate(const efile_path_t *path) {
+    HANDLE handle;
+    int result;
+
+    handle = CreateFileW((const WCHAR*)path->data, GENERIC_READ,
+                         FILE_SHARE_FLAGS, NULL, OPEN_EXISTING,
+                         FILE_FLAG_OPEN_REPARSE_POINT |
+                         FILE_FLAG_BACKUP_SEMANTICS,
+                         NULL);
+    result = 0;
+
+    if(handle != INVALID_HANDLE_VALUE) {
+        REPARSE_GUID_DATA_BUFFER reparse_buffer;
+        DWORD unused_length;
+        BOOL success;
+
+        success = DeviceIoControl(handle,
+                                  FSCTL_GET_REPARSE_POINT, NULL, 0,
+                                  &reparse_buffer, sizeof(reparse_buffer),
+                                  &unused_length, NULL);
+
+        /* ERROR_MORE_DATA is tolerated since we're guaranteed to have filled
+         * the field we want. */
+        if(success || GetLastError() == ERROR_MORE_DATA) {
+            result = IsReparseTagNameSurrogate(reparse_buffer.ReparseTag);
+        }
+
+        CloseHandle(handle);
+     }
+
+     return result;
+}
+
+static void build_file_info(BY_HANDLE_FILE_INFORMATION *native_file_info, const efile_path_t *path, int is_link, efile_fileinfo_t *result) {
     DWORD attributes;
 
-    sys_memset(&native_file_info, 0, sizeof(native_file_info));
+    attributes = native_file_info->dwFileAttributes;
 
-    attributes = GetFileAttributesW((WCHAR*)path->data);
-
-    if(attributes == INVALID_FILE_ATTRIBUTES) {
-        DWORD last_error = GetLastError();
-
-        /* Querying a network share root fails with ERROR_BAD_NETPATH, so we'll
-         * fake it as a directory just like local roots. */
-        if(!is_path_root(path) || last_error != ERROR_BAD_NETPATH) {
-            return windows_to_posix_errno(last_error);
-        }
-
-        attributes = FILE_ATTRIBUTE_DIRECTORY;
-    } else if(is_path_root(path)) {
-        /* Local (or mounted) roots can be queried with GetFileAttributesW but
-         * lack support for GetFileInformationByHandle, so we'll skip that
-         * part. */
-    } else {
-        HANDLE handle;
-
-        if(follow_links && (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-            posix_errno_t posix_errno;
-            efile_path_t resolved_path;
-
-            posix_errno = internal_read_link(path, &resolved_path);
-
-            if(posix_errno != 0) {
-                return posix_errno;
-            }
-
-            return efile_read_info(&resolved_path, 0, result);
-        }
-
-        handle = CreateFileW((const WCHAR*)path->data, GENERIC_READ,
-            FILE_SHARE_FLAGS, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS,
-            NULL);
-
-        /* The old driver never cared whether this succeeded. */
-        if(handle != INVALID_HANDLE_VALUE) {
-            GetFileInformationByHandle(handle, &native_file_info);
-            CloseHandle(handle);
-        }
-
-        FILETIME_TO_EPOCH(result->m_time, native_file_info.ftLastWriteTime);
-        FILETIME_TO_EPOCH(result->a_time, native_file_info.ftLastAccessTime);
-        FILETIME_TO_EPOCH(result->c_time, native_file_info.ftCreationTime);
-
-        if(result->m_time == -EPOCH_DIFFERENCE) {
-            /* Default to 1970 just like the old driver. */
-            result->m_time = 0;
-        }
-
-        if(result->a_time == -EPOCH_DIFFERENCE) {
-            result->a_time = result->m_time;
-        }
-
-        if(result->c_time == -EPOCH_DIFFERENCE) {
-            result->c_time = result->m_time;
-        }
-    }
-
-    if(attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+    if(is_link) {
         result->type = EFILE_FILETYPE_SYMLINK;
         /* This should be _S_IFLNK, but the old driver always set
          * non-directories to _S_IFREG. */
@@ -767,16 +808,135 @@ posix_errno_t efile_read_info(const efile_path_t *path, int follow_links, efile_
     result->mode |= (result->mode & 0700) >> 6;
 
     result->size =
-        ((Uint64)native_file_info.nFileSizeHigh << 32ull) |
-        (Uint64)native_file_info.nFileSizeLow;
-
-    result->links = MAX(1, native_file_info.nNumberOfLinks);
+        ((Uint64)native_file_info->nFileSizeHigh << 32ull) |
+        (Uint64)native_file_info->nFileSizeLow;
+    result->links = MAX(1, native_file_info->nNumberOfLinks);
 
     result->major_device = get_drive_number(path);
     result->minor_device = 0;
     result->inode = 0;
     result->uid = 0;
     result->gid = 0;
+}
+
+static void build_file_info_times(BY_HANDLE_FILE_INFORMATION *native_file_info, efile_fileinfo_t *result) {
+    FILETIME_TO_EPOCH(result->m_time, native_file_info->ftLastWriteTime);
+    FILETIME_TO_EPOCH(result->a_time, native_file_info->ftLastAccessTime);
+    FILETIME_TO_EPOCH(result->c_time, native_file_info->ftCreationTime);
+
+    if(result->m_time == -EPOCH_DIFFERENCE) {
+        /* Default to 1970 just like the old driver. */
+        result->m_time = 0;
+    }
+
+    if(result->a_time == -EPOCH_DIFFERENCE) {
+        result->a_time = result->m_time;
+    }
+
+    if(result->c_time == -EPOCH_DIFFERENCE) {
+        result->c_time = result->m_time;
+    }
+}
+
+posix_errno_t efile_read_info(const efile_path_t *path, int follow_links, efile_fileinfo_t *result) {
+    BY_HANDLE_FILE_INFORMATION native_file_info;
+    DWORD attributes;
+    int is_link;
+
+    sys_memset(&native_file_info, 0, sizeof(native_file_info));
+    is_link = 0;
+
+    attributes = GetFileAttributesW((WCHAR*)path->data);
+
+    if(attributes == INVALID_FILE_ATTRIBUTES) {
+        DWORD last_error = GetLastError();
+
+        /* Querying a network share root fails with ERROR_BAD_NETPATH, so we'll
+         * fake it as a directory just like local roots. */
+        if(!is_path_root(path) || last_error != ERROR_BAD_NETPATH) {
+            return windows_to_posix_errno(last_error);
+        }
+
+        native_file_info.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+    } else if(is_path_root(path)) {
+        /* Local (or mounted) roots can be queried with GetFileAttributesW but
+         * lack support for GetFileInformationByHandle, so we'll skip that
+         * part. */
+        native_file_info.dwFileAttributes = attributes;
+    } else {
+        HANDLE handle;
+        DWORD last_error;
+        DWORD flags;
+
+        if(attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+            is_link = is_name_surrogate(path);
+        }
+
+        flags = FILE_FLAG_BACKUP_SEMANTICS;
+        if(!follow_links && is_link) {
+            flags |= FILE_FLAG_OPEN_REPARSE_POINT;
+        }
+
+        handle = CreateFileW((const WCHAR*)path->data, GENERIC_READ,
+            FILE_SHARE_FLAGS, NULL, OPEN_EXISTING, flags, NULL);
+        last_error = GetLastError();
+
+        if(handle == INVALID_HANDLE_VALUE) {
+            return windows_to_posix_errno(last_error);
+        }
+
+        if(follow_links && is_link) {
+            posix_errno_t posix_errno;
+            efile_path_t resolved_path;
+
+            posix_errno = internal_read_link(handle, &resolved_path);
+
+            CloseHandle(handle);
+
+            if(posix_errno != 0) {
+                return posix_errno;
+            }
+
+            return efile_read_info(&resolved_path, 0, result);
+        }
+
+        GetFileInformationByHandle(handle, &native_file_info);
+        CloseHandle(handle);
+
+        build_file_info_times(&native_file_info, result);
+    }
+
+    build_file_info(&native_file_info, path, is_link, result);
+
+    return 0;
+}
+
+posix_errno_t efile_read_handle_info(efile_data_t *d, efile_fileinfo_t *result) {
+    efile_win_t *w = (efile_win_t*)d;
+    HANDLE handle;
+    BY_HANDLE_FILE_INFORMATION native_file_info;
+    posix_errno_t posix_errno;
+    efile_path_t path;
+    int length;
+
+    sys_memset(&native_file_info, 0, sizeof(native_file_info));
+
+    posix_errno = internal_read_link(w->handle, &path);
+    if(posix_errno != 0) {
+        return posix_errno;
+    }
+
+    if(GetFileInformationByHandle(w->handle, &native_file_info)) {
+        build_file_info_times(&native_file_info, result);
+    } else if(is_path_root(&path)) {
+        /* GetFileInformationByHandle is not supported on path roots, so
+         * fall back to efile_read_info. */
+        return efile_read_info(&path, 0, result);
+    } else {
+        return windows_to_posix_errno(GetLastError());
+    }
+
+    build_file_info(&native_file_info, &path, 0, result);
 
     return 0;
 }
@@ -855,39 +1015,26 @@ posix_errno_t efile_set_time(const efile_path_t *path, Sint64 a_time, Sint64 m_t
     return windows_to_posix_errno(last_error);
 }
 
-static posix_errno_t internal_read_link(const efile_path_t *path, efile_path_t *result) {
+static posix_errno_t internal_read_link(HANDLE link_handle, efile_path_t *result) {
     DWORD required_length, actual_length;
-    HANDLE link_handle;
     DWORD last_error;
-
-    link_handle = CreateFileW((WCHAR*)path->data, GENERIC_READ,
-        FILE_SHARE_FLAGS, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-    last_error = GetLastError();
-
-    if(link_handle == INVALID_HANDLE_VALUE) {
-        return windows_to_posix_errno(last_error);
-    }
 
     required_length = GetFinalPathNameByHandleW(link_handle, NULL, 0, 0);
     last_error = GetLastError();
 
     if(required_length <= 0) {
-        CloseHandle(link_handle);
         return windows_to_posix_errno(last_error);
     }
 
     /* Unlike many other path functions (eg. GetFullPathNameW), this one
      * includes the NUL terminator in its required length. */
     if(!enif_alloc_binary(required_length * sizeof(WCHAR), result)) {
-        CloseHandle(link_handle);
         return ENOMEM;
     }
 
     actual_length = GetFinalPathNameByHandleW(link_handle,
         (WCHAR*)result->data, required_length, 0);
     last_error = GetLastError();
-
-    CloseHandle(link_handle);
 
     if(actual_length == 0 || actual_length >= required_length) {
         enif_release_binary(result);
@@ -906,6 +1053,8 @@ posix_errno_t efile_read_link(ErlNifEnv *env, const efile_path_t *path, ERL_NIF_
     posix_errno_t posix_errno;
     ErlNifBinary result_bin;
     DWORD attributes;
+    HANDLE handle;
+    DWORD last_error;
 
     ASSERT_PATH_FORMAT(path);
 
@@ -917,7 +1066,21 @@ posix_errno_t efile_read_link(ErlNifEnv *env, const efile_path_t *path, ERL_NIF_
         return EINVAL;
     }
 
-    posix_errno = internal_read_link(path, &result_bin);
+    if(!is_name_surrogate(path)) {
+        return EINVAL;
+    }
+
+    handle = CreateFileW((WCHAR*)path->data, GENERIC_READ,
+        FILE_SHARE_FLAGS, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS,
+        NULL);
+    last_error = GetLastError();
+
+    if(handle == INVALID_HANDLE_VALUE) {
+        return windows_to_posix_errno(last_error);
+    }
+    posix_errno = internal_read_link(handle, &result_bin);
+
+    CloseHandle(handle);
 
     if(posix_errno == 0) {
         if(!normalize_path_result(&result_bin)) {
@@ -1202,11 +1365,22 @@ posix_errno_t efile_set_cwd(const efile_path_t *path) {
 
     /* We have to use _wchdir since that's the only function that updates the
      * per-drive working directory, but it naively assumes that all paths
-     * starting with \\ are UNC paths, so we have to skip the \\?\-prefix. */
-    path_start = (WCHAR*)path->data + LP_PREFIX_LENGTH;
+     * starting with \\ are UNC paths, so we have to skip the long-path prefix.
+     *
+     * _wchdir doesn't handle long-prefixed UNC paths either so we hand those
+     * to SetCurrentDirectoryW instead. The per-drive working directory is
+     * irrelevant for such paths anyway. */
 
-    if(_wchdir(path_start)) {
-        return windows_to_posix_errno(GetLastError());
+    if(!IS_LONG_UNC_PATH(PATH_LENGTH(path), path->data)) {
+        path_start = (WCHAR*)path->data + LP_PREFIX_LENGTH;
+
+        if(_wchdir(path_start)) {
+            return windows_to_posix_errno(GetLastError());
+        }
+    } else {
+        if(!SetCurrentDirectoryW((WCHAR*)path->data)) {
+            return windows_to_posix_errno(GetLastError());
+        }
     }
 
     return 0;
@@ -1287,7 +1461,7 @@ posix_errno_t efile_altname(ErlNifEnv *env, const efile_path_t *path, ERL_NIF_TE
         int name_length;
 
         /* Reject path wildcards. */
-        if(wcspbrk(&((const WCHAR*)path->data)[4], L"?*")) {
+        if(wcspbrk(&((const WCHAR*)path->data)[LP_PREFIX_LENGTH], L"?*")) {
             return ENOENT;
         }
 

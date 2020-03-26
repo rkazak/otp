@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2020. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -208,7 +208,11 @@ erl_interface(Vars,OsType) ->
 			 {filename:join(Dir, "lib"),
 			  filename:join([Dir, "src", "eidefs.mk"])};
 		     {srctree, _Root, Target} ->
-			 {filename:join([Dir, "obj", Target]),
+                         Obj = case is_debug_build() of
+                                   true -> "obj.debug";
+                                   false -> "obj"
+                               end,
+			 {filename:join([Dir, Obj, Target]),
 			  filename:join([Dir, "src", Target, "eidefs.mk"])}
 		 end}
 	end,
@@ -358,7 +362,15 @@ link_library(_LibName,_Other) ->
 %% Returns emulator specific variables.
 emu_vars(Vars) ->
     [{is_source_build, is_source_build()},
-     {erl_name, atom_to_list(lib:progname())}|Vars].
+     {erl_name, get_progname()}|Vars].
+
+get_progname() ->
+    case init:get_argument(progname) of
+	{ok, [[Prog]]} ->
+	    Prog;
+	_Other ->
+	    "no_prog_name"
+    end.
 
 is_source_build() ->
     string:find(erlang:system_info(system_version), "source") =/= nomatch.

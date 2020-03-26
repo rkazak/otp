@@ -22,10 +22,9 @@
 <!ENTITY % common.entities SYSTEM "common.entities.dtd" >
 %common.entities;
 
-<!ENTITY % block              "p|pre|code|list|taglist|codeinclude|
-                               erleval" >
-<!ENTITY % inline             "#PCDATA|c|i|em|strong|term|cite|br|path|seealso|
-                               url|marker|anno" >
+<!ENTITY % block              "p|pre|code|list|taglist|codeinclude" >
+<!ENTITY % inline             "#PCDATA|c|i|em|strong|term|br|seealso|
+                               url|marker|anno|image" >
 <!-- XXX --> 
 <!ELEMENT p                   (%inline;)* >
 <!ELEMENT pre                 (#PCDATA|seealso|url|input|anno)* >
@@ -43,33 +42,16 @@
 <!ELEMENT strong              (#PCDATA|c|anno)* >
 <!ELEMENT anno                (#PCDATA) >
 
-<!-- XXX -->
-<!ELEMENT term                (termdef?) >
-<!ATTLIST term                id CDATA #REQUIRED >
-<!ELEMENT termdef             (#PCDATA) >
-<!ELEMENT cite                (citedef?) >
-<!ATTLIST cite                id CDATA #REQUIRED >
-<!ELEMENT citedef             (ctitle,cauthor,chowpublished) >
-<!ELEMENT ctitle              (#PCDATA) >
-<!ELEMENT cauthor             (#PCDATA) >
-<!ELEMENT chowpublished       (#PCDATA) >
-
 <!-- XXX --> 
 <!ELEMENT br                  EMPTY >
-
-<!-- Path -->
-
-<!ELEMENT path                (#PCDATA) >
-<!ATTLIST path                unix CDATA ""
-                              windows CDATA "" >
 
 <!-- List -->
 
 <!ELEMENT list                (item+) >
 <!ATTLIST list                 type (ordered|bulleted) "bulleted" >
-<!ELEMENT taglist             (tag,item+)+ >
+<!ELEMENT taglist             (marker*,tag,item+)+ >
 <!ELEMENT tag                 (#PCDATA|c|i|em|br|seealso|url|marker|anno)* >
-<!ELEMENT item                (%inline;|%block;|warning|note|dont|do|quote)* >
+<!ELEMENT item                (%inline;|%block;|warning|note|dont|do|quote|table)* >
 
 <!-- References -->
 
@@ -86,8 +68,3 @@
 <!ATTLIST codeinclude          file CDATA #REQUIRED
                                tag  CDATA ""
                                type (erl|c|none) "none" >
-
-<!-- ErlEval -->
-
-<!ELEMENT erleval              EMPTY >
-<!ATTLIST erleval              expr CDATA #REQUIRED >

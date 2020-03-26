@@ -1,7 +1,7 @@
 # 
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2006-2017. All Rights Reserved.
+# Copyright Ericsson AB 2006-2020. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -129,9 +129,13 @@ makefiles:
 
 .PHONY: release
 release:
+ifeq ($(TYPE),)
 	for t in $(TYPES); do \
 	  ( cd emulator && $(MAKE) release TYPE=$$t ) || exit $$?; \
 	done
+else
+	( cd emulator && $(MAKE) release TYPE=$(TYPE) ) || exit $$?;
+endif
 	$(V_at)for d in $(ERTSDIRS) $(XINSTDIRS); do \
 		if test -d $$d; then \
 			( cd $$d && $(MAKE) $@ ) || exit $$? ; \
@@ -149,3 +153,5 @@ release_docs:
 .PHONY: xmllint
 xmllint:
 	$(MAKE) -C doc/src $@
+
+include $(ERL_TOP)/make/app_targets.mk

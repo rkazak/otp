@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -815,8 +815,7 @@ result_line_1(Items) ->
 
 try_catch() ->
     ["  catch",nl,
-     "    Class:Exception when Class =:= error; Class =:= exit ->",nl,
-     "      Stk = erlang:get_stacktrace(),",nl,
+     "    Class:Exception:Stk when Class =:= error; Class =:= exit ->",nl,
      "      case Exception of",nl,
      "        {error,{asn1,Reason}} ->",nl,
      "          {error,{asn1,{Reason,Stk}}};",nl,
